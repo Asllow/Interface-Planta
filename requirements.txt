@@ -1,0 +1,6 @@
+customtkinter
+matplotlib
+flask
+numpy
+packaging
+pillow

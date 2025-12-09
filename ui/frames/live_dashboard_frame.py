@@ -113,7 +113,21 @@ class LiveDashboardFrame(ctk.CTkFrame):
         print("Iniciando loops do Dashboard Live (UI)...")
         self.is_running = True
         self.update_rec_buttons()
-        self.anim = animation.FuncAnimation(self.fig, self.plotter.animation_update_callback, interval=30, blit=False, cache_frame_data=False)
+
+        if self.anim is None:
+            self.anim = animation.FuncAnimation(
+                self.fig, 
+                self.plotter.animation_update_callback, 
+                interval=30, 
+                blit=False, 
+                cache_frame_data=False
+            )
+
+        try:
+            self.anim.event_source.start()
+        except Exception:
+            pass
+
         self.process_queue()
 
     def stop_loops(self):
@@ -121,14 +135,12 @@ class LiveDashboardFrame(ctk.CTkFrame):
         print("Parando loops do Dashboard Live (UI)...")
         self.is_running = False
 
-        if self.anim:
+        if self.anim and self.anim.event_source:
             try:
-                if self.anim.event_source:
-                    self.anim.event_source.stop()
+                self.anim.event_source.stop()
             except Exception:
                 pass
-            self.anim = None
-
+        
         if self._after_id_process_queue:
             try: self.after_cancel(self._after_id_process_queue)
             except Exception: pass
@@ -139,14 +151,16 @@ class LiveDashboardFrame(ctk.CTkFrame):
     
     def toggle_pause(self):
         self.is_paused = not self.is_paused
-        if self.is_paused:
-            self.anim.pause()
-            self.pause_button.configure(text="Retomar")
-            print("Gráfico pausado.")
-        else:
-            self.anim.resume()
-            self.pause_button.configure(text="Pausar")
-            print("Gráfico retomado.")
+        
+        if self.anim and self.anim.event_source:
+            if self.is_paused:
+                self.anim.event_source.stop()
+                self.pause_button.configure(text="Retomar")
+                print("Gráfico visualmente pausado (Buffer continua recebendo dados).")
+            else:
+                self.anim.event_source.start()
+                self.pause_button.configure(text="Pausar")
+                print("Gráfico retomado.")
 
     def save_graph(self):
         try:
@@ -198,8 +212,8 @@ class LiveDashboardFrame(ctk.CTkFrame):
 
     def process_queue(self):
         if not self.is_running:
-            print("Loop 'process_queue' interrompido.")
             return
+
         try:
             data_processed = False
             while not data_queue.empty():
@@ -207,12 +221,12 @@ class LiveDashboardFrame(ctk.CTkFrame):
                 self.plotter.append_plot_data(data)
                 data_processed = True
 
-            if data_processed:
+            if data_processed and not self.is_paused:
                 self._update_stats_bar()
-                
+
         finally:
             if self.is_running:
-                self.after_id_process_queue = self.after(30, self.process_queue)
+                self._after_id_process_queue = self.after(30, self.process_queue)
     
     def validate_numeric_input(self, value_if_allowed):
         if value_if_allowed == "" or value_if_allowed == "-":

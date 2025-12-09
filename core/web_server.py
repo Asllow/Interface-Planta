@@ -3,6 +3,7 @@ from datetime import datetime
 import queue
 import threading
 
+import core.database as database
 from core.shared_state import data_queue, db_queue, shared_data, data_lock
 
 flask_app = Flask(__name__)
@@ -21,16 +22,24 @@ def handle_data():
     last_batch_time = current_time
     data_batch = request.get_json()
 
+    if data_batch is None:
+        return jsonify({"status": "no data"}), 400
+
     for item in data_batch:
         item['timestamp_recebimento'] = current_time.isoformat()
         item['batch_interval_ms'] = batch_interval_ms
 
         try:
             data_queue.put(item, block=False)
-            db_queue.put(item, block=False)
         except queue.Full:
-            print("Aviso: Uma das filas está cheia, descartando amostra.")
             pass
+
+        if database.is_recording_enabled:
+            try:
+                db_queue.put(item, block=False)
+            except queue.Full:
+                print("Aviso: Fila do DB cheia, descartando amostra de gravação.")
+                pass
 
     response_payload = {
         "new_setpoint": None
