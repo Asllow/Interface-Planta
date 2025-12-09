@@ -1,0 +1,19 @@
+# Arquivos de banco de dados
+*.db
+
+# Pastas de cache e build
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+venv/
+.venv/
+build/
+dist/
+
+# Logs e Dados Gerados
+*.log
+images/
+
+# IDE files (VS Code, PyCharm, etc.)
+.vscode/
+.idea/

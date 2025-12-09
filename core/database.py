@@ -1,38 +1,32 @@
-# database.py
 import sqlite3
 from datetime import datetime
 
 DB_FILE = "motor_data.db"
 current_run_id = None
 
-# --- NOVA TRAVA GLOBAL ---
-# Começa ligada, permitindo a gravação automática no início.
 is_recording_enabled = True
 
 def _create_new_experiment():
-    """Função interna para criar um novo experimento."""
     global current_run_id
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
-        
+
         timestamp_inicio = datetime.now().isoformat()
         cursor.execute("INSERT INTO experimentos (timestamp_inicio, status) VALUES (?, 'running')", (timestamp_inicio,))
-        
+
         new_id = cursor.lastrowid
         conn.commit()
         conn.close()
-        
+
         current_run_id = new_id
         print(f"--- NOVO EXPERIMENTO INICIADO --- ID: {current_run_id} ---")
         return new_id
-        
     except Exception as e:
         print(f"ERRO ao criar novo experimento: {e}")
         return None
 
 def startup_cleanup():
-    """Fecha experimentos 'running' de sessões anteriores."""
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
@@ -49,70 +43,52 @@ def startup_cleanup():
         cursor.execute("UPDATE experimentos SET status = 'completed' WHERE status = 'running' AND timestamp_fim IS NULL")
         conn.commit()
         conn.close()
+
         if cursor.rowcount > 0:
             print(f"DB: {cursor.rowcount} experimento(s) anterior(es) foi(ram) fechado(s).")
     except Exception as e:
         print(f"ERRO ao fechar experimentos antigos: {e}")
 
-# --- FUNÇÃO ATUALIZADA ---
 def close_current_experiment():
-    """
-    Fecha o experimento atual E DESLIGA A GRAVAÇÃO.
-    """
     global current_run_id, is_recording_enabled
-    
-    # 1. Desliga a trava de gravação
+
     is_recording_enabled = False
     print("DB: Gravação DESLIGADA.")
-    
+
     if current_run_id is None:
         print("DB: Nenhum experimento 'running' para fechar.")
         return
-        
+
     print(f"Fechando experimento ID: {current_run_id}...")
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
-        
+
         timestamp_fim = datetime.now().isoformat()
         cursor.execute("SELECT timestamp_recebimento FROM telemetria WHERE id_experimento = ? ORDER BY timestamp_recebimento DESC LIMIT 1", (current_run_id,))
         last_telemetry_time = cursor.fetchone()
-        
+
         if last_telemetry_time:
             timestamp_fim = last_telemetry_time[0]
 
         cursor.execute("UPDATE experimentos SET timestamp_fim = ?, status = 'completed' WHERE id = ?", (timestamp_fim, current_run_id))
-        
+
         conn.commit()
         conn.close()
         print(f"--- EXPERIMENTO FINALIZADO --- ID: {current_run_id} ---")
         current_run_id = None
-        
     except Exception as e:
         print(f"ERRO ao fechar experimento {current_run_id}: {e}")
 
-# --- FUNÇÃO ATUALIZADA ---
 def start_new_experiment():
-    """
-    Fecha o experimento atual (se houver) E LIGA A GRAVAÇÃO,
-    criando um novo experimento.
-    """
     global is_recording_enabled
     print("DB: Solicitação para iniciar novo experimento...")
-    
-    # 1. Garante que o experimento anterior seja fechado
-    #    (Nota: isso também desliga a gravação, mas vamos ligá-la de volta)
     close_current_experiment() 
-    
-    # 2. Liga a trava de gravação
     is_recording_enabled = True
     print("DB: Gravação LIGADA.")
-    
-    # 3. Força a criação do novo experimento agora
     _create_new_experiment()
 
 def init_db():
-    # ... (Esta função continua exatamente igual) ...
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("""
@@ -135,6 +111,7 @@ def init_db():
             FOREIGN KEY (id_experimento) REFERENCES experimentos (id)
         )
     """)
+
     try:
         cursor.execute("ALTER TABLE experimentos ADD COLUMN timestamp_fim TEXT")
     except sqlite3.OperationalError: pass
@@ -144,21 +121,13 @@ def init_db():
     conn.commit()
     conn.close()
 
-# --- FUNÇÃO ATUALIZADA ---
 def insert_data(data: dict):
-    """
-    Insere dados, criando um novo experimento se necessário,
-    MAS SOMENTE SE a gravação estiver ligada.
-    """
     global current_run_id, is_recording_enabled
-    
-    # 1. NOVA VERIFICAÇÃO DA TRAVA GLOBAL
+
     if not is_recording_enabled:
-        # print("DB: Gravação desligada, dados descartados.") # (Opcional: pode poluir o log)
         return
 
     try:
-        # 2. Lógica antiga de criação automática (agora segura)
         if current_run_id is None:
             _create_new_experiment()
         
@@ -168,7 +137,7 @@ def insert_data(data: dict):
 
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
-        
+
         cursor.execute("""
             INSERT INTO telemetria (
                 id_experimento, timestamp_recebimento, timestamp_amostra_ms, 
@@ -180,12 +149,9 @@ def insert_data(data: dict):
         ))
         conn.commit()
         conn.close()
-        
     except Exception as e:
         print(f"ERRO ao inserir dados no banco de dados: {e}")
 
-# ... (as funções get_completed_experiments() e 
-#      get_telemetry_for_experiment() continuam iguais) ...
 def get_completed_experiments():
     try:
         conn = sqlite3.connect(DB_FILE)
@@ -199,6 +165,7 @@ def get_completed_experiments():
             ORDER BY timestamp_inicio DESC
         """)
         experimentos = []
+
         for row in cursor.fetchall():
             try:
                 inicio = datetime.fromisoformat(row[1])
@@ -215,6 +182,7 @@ def get_completed_experiments():
                     "nome": f"Experimento #{row[0]}"
                 })
             except Exception: pass
+
         conn.close()
         return experimentos
     except Exception as e:

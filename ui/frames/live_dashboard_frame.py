@@ -5,27 +5,23 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from datetime import datetime
 import os
-import database
 
-from shared_state import data_queue, shared_data, data_lock
-from plot_manager import GraphManager
+import core.database as database
+from core.shared_state import data_queue, shared_data, data_lock
+from ui.plot_manager import GraphManager
 
 class LiveDashboardFrame(ctk.CTkFrame):
     
     def __init__(self, master, controller):
         super().__init__(master)
-        
         self.controller = controller 
-        
-        # --- 1. CONFIGURAÇÃO INICIAL DOS LOOPS ---
-        self.is_running = False # Começa como Falso
+        self.is_running = False
         self.anim = None
         self._after_id_process_queue = None
         
         self.is_paused = False
         self.is_graph_visible = False
 
-        # --- LAYOUT (Sem alterações) ---
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
         self.sidebar_frame = ctk.CTkFrame(self, width=180, corner_radius=0)
@@ -36,7 +32,6 @@ class LiveDashboardFrame(ctk.CTkFrame):
         ctk.CTkButton(self.sidebar_frame, text="Intervalo Amostras", command=lambda: self.select_graph('ciclo')).pack(pady=10, padx=20)
         ctk.CTkButton(self.sidebar_frame, text="Intervalo de Rede", command=lambda: self.select_graph('batch_interval')).pack(pady=10, padx=20)
 
-        # --- ÁREA PRINCIPAL (Sem alterações) ---
         self.main_frame = ctk.CTkFrame(self) 
         self.main_frame.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
         self.main_frame.grid_rowconfigure(1, weight=1)
@@ -47,7 +42,7 @@ class LiveDashboardFrame(ctk.CTkFrame):
         self.pause_button.pack(side="right", padx=(5, 0))
         self.save_button = ctk.CTkButton(self.graph_controls_frame, text="Salvar Gráfico", width=120, command=self.save_graph)
         self.save_button.pack(side="right")
-        
+
         plt.style.use('seaborn-v0_8-whitegrid')
         self.fig, self.ax = plt.subplots()
         self.plotter = GraphManager(self.fig, self.ax, max_points=100)
@@ -58,7 +53,6 @@ class LiveDashboardFrame(ctk.CTkFrame):
         self.initial_message_label.grid(row=1, column=0)
         self.canvas_widget.grid_remove()
 
-        # --- BARRAS (Sem alterações) ---
         self.stats_bar_frame = ctk.CTkFrame(self, height=40) 
         self.stats_bar_frame.grid(row=1, column=1, padx=10, pady=(0, 5), sticky="ew") 
         self.stats_bar_frame.grid_columnconfigure((0, 1, 2), weight=1)
@@ -77,7 +71,7 @@ class LiveDashboardFrame(ctk.CTkFrame):
         self.entry_pwm.bind("<Return>", self.send_pwm_command)
         self.btn_send = ctk.CTkButton(self.bottom_bar, text="Enviar", width=100, command=self.send_pwm_command)
         self.btn_send.pack(side="left", padx=10)
-        # Frame para os novos botões (para eles irem para o fundo)
+
         control_frame = ctk.CTkFrame(self.sidebar_frame, fg_color="transparent")
         control_frame.pack(side="bottom", pady=20, padx=20, fill="x")
 
@@ -94,7 +88,6 @@ class LiveDashboardFrame(ctk.CTkFrame):
                         .pack(pady=(20, 5), fill="x")
 
     def start_loops(self):
-        """Inicia os loops de dados e animação (UI apenas)."""
         if self.is_running: return 
         print("Iniciando loops do Dashboard Live (UI)...")
         self.is_running = True
@@ -102,33 +95,27 @@ class LiveDashboardFrame(ctk.CTkFrame):
         self.process_queue()
 
     def stop_loops(self):
-        """Para os loops de dados e animação (UI apenas)."""
         if not self.is_running: return 
         print("Parando loops do Dashboard Live (UI)...")
         self.is_running = False
-        
-        # --- CORREÇÃO DO USERWARNING ---
+
         if self.anim:
             try:
-                # 'event_source' só existe se a animação tiver
-                # realmente começado a rodar.
                 if self.anim.event_source:
                     self.anim.event_source.stop()
             except Exception:
-                pass # Ignora erros se já estiver parada
+                pass
             self.anim = None
-            
+
         if self._after_id_process_queue:
             try: self.after_cancel(self._after_id_process_queue)
             except Exception: pass
             self._after_id_process_queue = None
 
     def on_closing(self):
-        """Chamado pelo MainApplication antes de fechar."""
         self.stop_loops()
     
     def toggle_pause(self):
-        # (Sem alteração)
         self.is_paused = not self.is_paused
         if self.is_paused:
             self.anim.pause()
@@ -140,7 +127,6 @@ class LiveDashboardFrame(ctk.CTkFrame):
             print("Gráfico retomado.")
 
     def save_graph(self):
-        # (Sem alteração)
         try:
             os.makedirs("images", exist_ok=True)
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -152,29 +138,24 @@ class LiveDashboardFrame(ctk.CTkFrame):
             print(f"ERRO ao salvar o gráfico: {e}")
 
     def _update_stats_bar(self):
-        """Busca as estatísticas do plotter e atualiza a UI."""
         try:
             stats = self.plotter.get_current_stats()
             if not stats:
                 return
 
             self.label_last_x.configure(text=f"Tempo (s): {stats.get('last_x', '--')}")
-            
-            # Lógica para barra de status
+
             if 'last_y1' in stats:
-                # É o gráfico combinado
                 self.label_last_y.configure(text=f"Sinal: {stats.get('last_y1', '--')} %")
                 self.label_avg_y.configure(text=f"Tensão: {stats.get('last_y2', '--')} mV")
             else:
                 # É um gráfico simples
                 self.label_last_y.configure(text=f"Último Valor: {stats.get('last_y', '--')}")
                 self.label_avg_y.configure(text=f"Média: {stats.get('avg_y', '--')}")
-                
         except Exception as e:
             print(f"ERRO em _update_stats_bar: {e}")
 
     def send_pwm_command(self, event=None):
-        # (Sem alteração)
         try:
             value = float(self.entry_pwm.get())
             with data_lock:
@@ -186,38 +167,32 @@ class LiveDashboardFrame(ctk.CTkFrame):
             print("Erro: Valor inválido no campo de PWM.")
 
     def select_graph(self, graph_key):
-        # (Sem alteração)
         if not self.is_graph_visible:
             self.initial_message_label.grid_forget()
             self.canvas_widget.grid(row=1, column=0, sticky="nsew")
             self.is_graph_visible = True
         self.plotter.select_graph(graph_key)
         self.canvas.draw()
-    
-    # --- 3. MÉTODO ATUALIZADO ---
+
     def process_queue(self):
-        # Verifica a flag no início.
         if not self.is_running:
             print("Loop 'process_queue' interrompido.")
-            return # Não faz nada e não se re-agenda
-
+            return
         try:
             data_processed = False
             while not data_queue.empty():
                 data = data_queue.get_nowait()
                 self.plotter.append_plot_data(data)
                 data_processed = True
-            
+
             if data_processed:
                 self._update_stats_bar()
                 
         finally:
-            # Só re-agenda se a flag ainda for True
             if self.is_running:
                 self.after_id_process_queue = self.after(30, self.process_queue)
     
     def validate_numeric_input(self, value_if_allowed):
-        # (Sem alteração)
         if value_if_allowed == "" or value_if_allowed == "-":
             return True
         try:

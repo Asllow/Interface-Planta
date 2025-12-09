@@ -1,20 +1,22 @@
 # main_app.py
 import customtkinter as ctk
 import sys
-import db_writer 
+from core import db_writer
+from config import settings
 
-from live_dashboard_frame import LiveDashboardFrame 
-from home_screen_frame import HomeScreenFrame
-from experiment_viewer_frame import ExperimentViewerFrame
+from ui.frames.live_dashboard_frame import LiveDashboardFrame 
+from ui.frames.home_screen_frame import HomeScreenFrame
+from ui.frames.experiment_viewer_frame import ExperimentViewerFrame
 
 class MainApplication(ctk.CTk):
-    
-    # ... (__init__ e show_frame continuam iguais) ...
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        ctk.set_appearance_mode("light")
-        self.title("Dashboard de Controle da Planta")
-        self.geometry("1000x600")
+
+        ctk.set_appearance_mode(settings.APPEARANCE_MODE)
+        ctk.set_default_color_theme(settings.COLOR_THEME)
+        self.title(settings.APP_TITLE)
+        self.geometry(settings.DEFAULT_WINDOW_SIZE)
+
         container = ctk.CTkFrame(self)
         container.pack(side="top", fill="both", expand=True)
         container.grid_rowconfigure(0, weight=1)
@@ -39,35 +41,25 @@ class MainApplication(ctk.CTk):
 
     def on_closing(self):
         print("Iniciando desligamento...")
-        
+
         try:
             self.frames["Live"].on_closing()
         except Exception as e:
             print(f"Erro ao fechar frame: {e}")
-        
         try:
             db_writer.stop_db_writer_thread()
         except Exception as e:
             print(f"Erro ao parar DB Writer: {e}")
-            
-        # O delay de 200ms ainda é bom para reduzir o "ruído"
+
         print("Aguardando 200ms para tarefas do Tkinter finalizarem...")
         self.after(200, self.perform_shutdown)
 
-    # --- FUNÇÃO ATUALIZADA ---
     def perform_shutdown(self):
-        """
-        Executa a destruição real da janela e força o processo
-        a sair.
-        """
         print("Executando self.destroy() e sys.exit()...")
+
         try:
-            self.destroy() # Tenta destruir a UI
+            self.destroy()
         except Exception as e:
             print(f"Erro (ignorado) durante self.destroy(): {e}")
-            
-        # --- CORREÇÃO AQUI ---
-        # Força o encerramento do processo.
-        # Isso mata a thread 'daemon' do Flask e
-        # resolve o "terminal não fechou".
+
         sys.exit(0)
