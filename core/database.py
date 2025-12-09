@@ -4,7 +4,7 @@ from datetime import datetime
 DB_FILE = "motor_data.db"
 current_run_id = None
 
-is_recording_enabled = True
+is_recording_enabled = False
 
 def _create_new_experiment():
     global current_run_id
@@ -48,6 +48,10 @@ def startup_cleanup():
             print(f"DB: {cursor.rowcount} experimento(s) anterior(es) foi(ram) fechado(s).")
     except Exception as e:
         print(f"ERRO ao fechar experimentos antigos: {e}")
+
+def is_experiment_running():
+    global current_run_id, is_recording_enabled
+    return (current_run_id is not None) and is_recording_enabled
 
 def close_current_experiment():
     global current_run_id, is_recording_enabled
@@ -129,10 +133,6 @@ def insert_data(data: dict):
 
     try:
         if current_run_id is None:
-            _create_new_experiment()
-        
-        if current_run_id is None:
-            print("ERRO: ID do experimento é nulo. Dados não serão salvos.")
             return
 
         conn = sqlite3.connect(DB_FILE)
@@ -160,8 +160,8 @@ def get_completed_experiments():
             SELECT id, timestamp_inicio, timestamp_fim 
             FROM experimentos 
             WHERE status = 'completed' 
-              AND timestamp_inicio IS NOT NULL 
-              AND timestamp_fim IS NOT NULL
+            AND timestamp_inicio IS NOT NULL 
+            AND timestamp_fim IS NOT NULL
             ORDER BY timestamp_inicio DESC
         """)
         experimentos = []
@@ -206,6 +206,22 @@ def get_telemetry_for_experiment(exp_id: int):
     except Exception as e:
         print(f"ERRO ao buscar telemetria para o experimento {exp_id}: {e}")
         return []
+
+def delete_experiment(exp_id):
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+
+        cursor.execute("DELETE FROM telemetria WHERE id_experimento = ?", (exp_id,))
+        cursor.execute("DELETE FROM experimentos WHERE id = ?", (exp_id,))
+        
+        conn.commit()
+        conn.close()
+        print(f"DB: Experimento {exp_id} excluído com sucesso.")
+        return True
+    except Exception as e:
+        print(f"ERRO ao excluir experimento {exp_id}: {e}")
+        return False
 
 if __name__ == '__main__':
     print("Inicializando o banco de dados...")

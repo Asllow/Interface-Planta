@@ -11,7 +11,6 @@ from core.shared_state import data_queue, shared_data, data_lock
 from ui.plot_manager import GraphManager
 
 class LiveDashboardFrame(ctk.CTkFrame):
-    
     def __init__(self, master, controller):
         super().__init__(master)
         self.controller = controller 
@@ -74,23 +73,46 @@ class LiveDashboardFrame(ctk.CTkFrame):
 
         control_frame = ctk.CTkFrame(self.sidebar_frame, fg_color="transparent")
         control_frame.pack(side="bottom", pady=20, padx=20, fill="x")
+        
+        self.status_label = ctk.CTkLabel(control_frame, text="Status: AGUARDANDO", text_color="gray", font=("Arial", 12, "bold"))
+        self.status_label.pack(pady=(0, 5))
 
-        ctk.CTkButton(  control_frame, text="Parar Experimento",
-                        command=database.close_current_experiment,
-                        fg_color="#D9534F", hover_color="#C9302C") \
-                        .pack(pady=5, fill="x")
-        ctk.CTkButton(  control_frame, text="Iniciar Novo",
-                        command=database.start_new_experiment) \
-                        .pack(pady=5, fill="x")
-        ctk.CTkButton(  control_frame, text="Voltar ao Menu",
+        self.btn_rec = ctk.CTkButton(
+            control_frame, 
+            text="Iniciar Gravação",
+            command=self.toggle_recording,
+            fg_color="green", 
+            hover_color="darkgreen"
+        )
+        self.btn_rec.pack(pady=5, fill="x")
+
+        ctk.CTkButton(control_frame, text="Voltar ao Menu",
                         command=lambda: self.controller.show_frame("Home"),
                         fg_color="gray") \
                         .pack(pady=(20, 5), fill="x")
+
+        self.update_rec_buttons()
+
+    def toggle_recording(self):
+        if database.is_experiment_running():
+            database.close_current_experiment()
+        else:
+            database.start_new_experiment()
+        self.update_rec_buttons()
+
+    def update_rec_buttons(self):
+        if database.is_experiment_running():
+            self.btn_rec.configure(text="PARAR Gravação", fg_color="#D9534F", hover_color="#C9302C")
+            self.status_label.configure(text="Status: GRAVANDO", text_color="#D9534F")
+        else:
+            self.btn_rec.configure(text="Iniciar Gravação", fg_color="#5CB85C", hover_color="#4CAE4C")
+            self.status_label.configure(text="Status: EM ESPERA", text_color="gray")
 
     def start_loops(self):
         if self.is_running: return 
         print("Iniciando loops do Dashboard Live (UI)...")
         self.is_running = True
+        self.update_rec_buttons()
         self.anim = animation.FuncAnimation(self.fig, self.plotter.animation_update_callback, interval=30, blit=False, cache_frame_data=False)
         self.process_queue()
 

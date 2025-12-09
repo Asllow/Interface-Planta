@@ -2,6 +2,7 @@ import customtkinter as ctk
 import core.database as database
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+from tkinter import messagebox
 
 import os
 from tkinter import filedialog as fd
@@ -54,12 +55,27 @@ class ExperimentViewerFrame(ctk.CTkFrame):
 
         self.canvas.get_tk_widget().grid(row=1, column=0, sticky="nsew")
 
-        self.export_button = ctk.CTkButton( self.graph_frame, 
+        self.buttons_container = ctk.CTkFrame(self.graph_frame, fg_color="transparent")
+        self.buttons_container.grid(row=2, column=0, pady=(10, 5), sticky="ew")
+
+        self.buttons_container.grid_columnconfigure(0, weight=1)
+        self.buttons_container.grid_columnconfigure(1, weight=1)
+
+        self.export_button = ctk.CTkButton( self.buttons_container, 
                                             text="Exportar Experimento",
                                             command=self.on_export_pressed,
                                             state="disabled")
-        
-        self.export_button.grid(row=2, column=0, pady=(10, 5)) 
+        self.export_button.grid(row=0, column=0, padx=5, sticky="e") 
+
+        self.delete_button = ctk.CTkButton(
+            self.buttons_container,
+            text="Excluir Experimento",
+            command=self.delete_current_experiment,
+            state="disabled",
+            fg_color="#D9534F", hover_color="#C9302C"
+        )
+        self.delete_button.grid(row=0, column=1, padx=5, sticky="w") 
+
         self.populate_experiment_list()
 
     def populate_experiment_list(self):
@@ -88,6 +104,7 @@ class ExperimentViewerFrame(ctk.CTkFrame):
         self.current_loaded_data = None
         self.current_loaded_exp_id = None
         self.export_button.configure(state="disabled")
+        self.delete_button.configure(state="disabled")
 
         telemetry_data = database.get_telemetry_for_experiment(exp_id)
 
@@ -105,6 +122,8 @@ class ExperimentViewerFrame(ctk.CTkFrame):
             self.current_loaded_data = telemetry_data
             self.current_loaded_exp_id = exp_id
             self.export_button.configure(state="normal")
+            self.delete_button.configure(state="normal")
+
             start_time_ms = telemetry_data[0]['timestamp_amostra_ms']
 
             time_sec = [(d['timestamp_amostra_ms'] - start_time_ms) / 1000.0 for d in telemetry_data]
@@ -176,3 +195,30 @@ class ExperimentViewerFrame(ctk.CTkFrame):
             print(f"Sucesso! Experimento salvo em: {filepath}")
         except Exception as e:
             print(f"Falha na exportação: {e}")
+
+    def delete_current_experiment(self):
+        if not self.current_loaded_exp_id:
+            return
+
+        confirm = messagebox.askyesno(
+            "Confirmar Exclusão", 
+            f"Tem certeza que deseja excluir o experimento #{self.current_loaded_exp_id}?\nEssa ação não pode ser desfeita."
+        )
+
+        if confirm:
+            success = database.delete_experiment(self.current_loaded_exp_id)
+
+            if success:
+                self.current_loaded_exp_id = None
+                self.current_loaded_data = None
+                self.ax.clear()
+                if self.ax2: self.ax2.remove(); self.ax2 = None
+                self.ax.set_title("Experimento Excluído")
+                self.canvas.draw()
+
+                self.export_button.configure(state="disabled")
+                self.delete_button.configure(state="disabled")
+
+                self.populate_experiment_list()
+            else:
+                messagebox.showerror("Erro", "Não foi possível excluir o experimento.")
