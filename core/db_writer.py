@@ -16,6 +16,7 @@ def database_writer_thread() -> None:
             # 1. Pega 1 item (bloqueia o processador e descansa se a fila estiver vazia)
             data = db_queue.get()
 
+            # Verificação de sinal de parada (Sentinela)
             if data is None:
                 # Se mandaram parar, salva o que sobrou no lote antes de morrer
                 if batch:

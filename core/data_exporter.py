@@ -36,6 +36,7 @@ def export_to_csv(data: List[Dict[str, Any]], filename: str, filtered_col: Optio
 
     print(f"Exportando CSV para {filename}...")
     try:
+        # newline='' é importante no Windows para evitar linhas em branco extras
         with open(filename, 'w', newline='', encoding='utf-8') as f:
             writer = csv.DictWriter(f, fieldnames=headers)
             writer.writeheader()
@@ -115,6 +116,7 @@ def export_to_npy(data: List[Dict[str, Any]], filename: str) -> None:
             ('erro_obs_mv', 'f8')
         ]
 
+        # Converte a lista de dicts para uma lista de tuplas compatível com o dtype
         lista_de_tuplas = [
             (
                 d.get('timestamp_amostra_ms', 0),

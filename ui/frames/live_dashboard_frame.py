@@ -299,6 +299,7 @@ class LiveDashboardFrame(ctk.CTkFrame):
             self.label_last_x.configure(text=f"Tempo (s): {stats.get('last_x', '--')}")
 
             if 'last_y1' in stats:
+                # Gráfico combinado (Controle + Tensão)
                 self.label_last_y.configure(text=f"Sinal: {stats.get('last_y1', '--')} %")
                 self.label_avg_y.configure(text=f"Tensão: {stats.get('last_y2', '--')} mV")
             elif self.plotter.current_graph == 'erro_observador':
