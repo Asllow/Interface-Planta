@@ -1,6 +1,41 @@
 # plot_manager.py
 import matplotlib.pyplot as plt
 from collections import deque
+import config.settings as settings
+
+def apply_style_from_settings():
+    mode = settings.APPEARANCE_MODE.lower()
+
+    if mode == "dark":
+        plt.style.use('dark_background')
+        bg_color = '#2b2b2b' 
+        plot_bg = '#212121'
+        text_color = '#e0e0e0'
+
+        plt.rcParams.update({
+            'figure.facecolor': bg_color,
+            'axes.facecolor': plot_bg,
+            'savefig.facecolor': bg_color,
+            
+            'text.color': text_color,
+            'axes.labelcolor': text_color,
+            'axes.edgecolor': '#404040',
+            'xtick.color': text_color,
+            'ytick.color': text_color,
+            
+            'grid.color': "#898989",
+            'grid.alpha': 0.8
+        })
+
+    else:
+        plt.style.use('seaborn-v0_8-whitegrid')
+
+        plt.rcParams.update({
+            'figure.facecolor': '#f0f0f0',
+            'axes.facecolor': 'white',
+            'text.color': 'black',
+            'grid.alpha': 0.4
+        })
 
 class GraphManager:
     def __init__(self, fig, ax, max_points=100):

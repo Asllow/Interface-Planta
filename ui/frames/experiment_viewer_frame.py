@@ -7,6 +7,7 @@ from tkinter import messagebox
 import os
 from tkinter import filedialog as fd
 import core.data_exporter as data_exporter
+from ui.plot_manager import apply_style_from_settings
 
 class ExperimentViewerFrame(ctk.CTkFrame):
     def __init__(self, master, controller):
@@ -24,40 +25,46 @@ class ExperimentViewerFrame(ctk.CTkFrame):
 
         ctk.CTkLabel(top_bar, text="Visualizador de Experimentos", font=ctk.CTkFont(size=18, weight="bold")) \
             .pack(side="left", padx=20)
-        ctk.CTkButton(  top_bar, text="Voltar ao Menu", 
-                        command=lambda: self.controller.show_frame("Home")) \
+        ctk.CTkButton(top_bar, text="Voltar ao Menu", command=lambda: self.controller.show_frame("Home")) \
             .pack(side="right", padx=20)
-        ctk.CTkButton(  top_bar, text="Recarregar Lista", 
-                        command=self.populate_experiment_list) \
+        ctk.CTkButton(top_bar, text="Recarregar Lista", command=self.populate_experiment_list) \
             .pack(side="right", padx=5)
 
         self.scroll_frame = ctk.CTkScrollableFrame(self, label_text="Experimentos Concluídos")
-        self.scroll_frame.grid( row=1, column=0, sticky="nsew", 
-                                padx=(10, 5), pady=(0, 10))
+        self.scroll_frame.grid(row=1, column=0, sticky="nsew", padx=(10, 5), pady=(0, 10))
 
         self.graph_frame = ctk.CTkFrame(self)
-        self.graph_frame.grid(  row=1, column=1, sticky="nsew", 
-                                padx=(5, 10), pady=(0, 10))
-
+        self.graph_frame.grid(row=1, column=1, sticky="nsew", padx=(5, 10), pady=(0, 10))
         self.graph_frame.grid_rowconfigure(1, weight=1)
         self.graph_frame.grid_columnconfigure(0, weight=1)
-        plt.style.use('seaborn-v0_8-whitegrid')
+
+        apply_style_from_settings()
+
         self.fig, self.ax = plt.subplots()
         self.ax2 = None
-        self.fig.set_facecolor("#f0f0f0") 
         self.fig.tight_layout()
+
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.graph_frame)
+        canvas_widget = self.canvas.get_tk_widget()
+
+        canvas_widget.configure(highlightthickness=0, bd=0)
+        canvas_widget.grid(row=1, column=0, sticky="nsew")
 
         toolbar_frame = ctk.CTkFrame(self.graph_frame, fg_color="transparent")
         toolbar_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=5)
+
         toolbar = NavigationToolbar2Tk(self.canvas, toolbar_frame)
         toolbar.update()
 
-        self.canvas.get_tk_widget().grid(row=1, column=0, sticky="nsew")
+        if ctk.get_appearance_mode() == "Dark":
+            toolbar_color = "#909090" 
+            toolbar.config(background=toolbar_color, highlightthickness=0, bd=0)
+
+            for widget in toolbar.winfo_children():
+                widget.config(background=toolbar_color, highlightthickness=0, bd=0)
 
         self.buttons_container = ctk.CTkFrame(self.graph_frame, fg_color="transparent")
         self.buttons_container.grid(row=2, column=0, pady=(10, 5), sticky="ew")
-
         self.buttons_container.grid_columnconfigure(0, weight=1)
         self.buttons_container.grid_columnconfigure(1, weight=1)
 
@@ -67,13 +74,11 @@ class ExperimentViewerFrame(ctk.CTkFrame):
                                             state="disabled")
         self.export_button.grid(row=0, column=0, padx=5, sticky="e") 
 
-        self.delete_button = ctk.CTkButton(
-            self.buttons_container,
-            text="Excluir Experimento",
-            command=self.delete_current_experiment,
-            state="disabled",
-            fg_color="#D9534F", hover_color="#C9302C"
-        )
+        self.delete_button = ctk.CTkButton( self.buttons_container,
+                                            text="Excluir Experimento",
+                                            command=self.delete_current_experiment,
+                                            state="disabled",
+                                            fg_color="#D9534F", hover_color="#C9302C")
         self.delete_button.grid(row=0, column=1, padx=5, sticky="w") 
 
         self.populate_experiment_list()

@@ -8,7 +8,7 @@ import os
 
 import core.database as database
 from core.shared_state import data_queue, shared_data, data_lock
-from ui.plot_manager import GraphManager
+from ui.plot_manager import GraphManager, apply_style_from_settings
 
 class LiveDashboardFrame(ctk.CTkFrame):
     def __init__(self, master, controller):
@@ -42,7 +42,7 @@ class LiveDashboardFrame(ctk.CTkFrame):
         self.save_button = ctk.CTkButton(self.graph_controls_frame, text="Salvar Gráfico", width=120, command=self.save_graph)
         self.save_button.pack(side="right")
 
-        plt.style.use('seaborn-v0_8-whitegrid')
+        apply_style_from_settings()
         self.fig, self.ax = plt.subplots()
         self.plotter = GraphManager(self.fig, self.ax, max_points=100)
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.main_frame)
