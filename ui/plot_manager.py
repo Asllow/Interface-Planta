@@ -1,13 +1,31 @@
-# plot_manager.py
+"""
+Gerenciador de Gráficos (Plot Manager).
+
+Este módulo é responsável pela manipulação direta da biblioteca Matplotlib,
+gerenciando a atualização de dados em tempo real, a troca de tipos de gráficos
+e a aplicação de estilos visuais (Dark/Light) conforme as configurações globais.
+"""
+
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
+from matplotlib.axes import Axes
 from collections import deque
 import config.settings as settings
+from typing import Dict, Optional, Any, Tuple
 
-def apply_style_from_settings():
+def apply_style_from_settings() -> None:
+    """
+    Aplica o tema visual (Dark/Light) ao Matplotlib baseando-se nas configurações.
+
+    Lê `settings.APPEARANCE_MODE` e atualiza `plt.rcParams` para garantir que
+    o fundo, eixos, texto e grid combinem com a interface CustomTkinter.
+    """
+
     mode = settings.APPEARANCE_MODE.lower()
 
     if mode == "dark":
         plt.style.use('dark_background')
+        # Cores ajustadas para combinar com CustomTkinter Dark (#2b2b2b)
         bg_color = '#2b2b2b' 
         plot_bg = '#212121'
         text_color = '#e0e0e0'
@@ -16,13 +34,13 @@ def apply_style_from_settings():
             'figure.facecolor': bg_color,
             'axes.facecolor': plot_bg,
             'savefig.facecolor': bg_color,
-            
+
             'text.color': text_color,
             'axes.labelcolor': text_color,
             'axes.edgecolor': '#404040',
             'xtick.color': text_color,
             'ytick.color': text_color,
-            
+
             'grid.color': "#898989",
             'grid.alpha': 0.8
         })
@@ -38,37 +56,78 @@ def apply_style_from_settings():
         })
 
 class GraphManager:
-    def __init__(self, fig, ax, max_points=100):
+    """
+    Controlador lógico para figuras do Matplotlib em tempo real.
+
+    Gerencia os buffers de dados (usando deque para performance), a renderização
+    dos eixos e a atualização da animação.
+    """
+
+    def __init__(self, fig: Figure, ax: Axes, max_points: int = 100):
+        """
+        Inicializa o gerenciador de gráficos.
+
+        Args:
+            fig (Figure): A instância da figura Matplotlib.
+            ax (Axes): O eixo principal para plotagem.
+            max_points (int): Tamanho máximo do buffer de dados (janela deslizante).
+        """
+
         self.fig = fig
         self.ax = ax
-        self.ax2 = None
+        self.ax2: Optional[Axes] = None
         self.max_points = max_points
 
-        self.plot_data = {
+        # Estrutura de dados para armazenar buffers de diferentes tipos de gráficos
+        self.plot_data: Dict[str, Dict[str, Any]] = {
             'controle_tensao': {
                 'x': deque(maxlen=self.max_points), 
                 'y1': deque(maxlen=self.max_points),
                 'y2': deque(maxlen=self.max_points),
                 'label': 'Sinal de Controle e Tensão'
             },
-            'valor_adc': {'x': deque(maxlen=self.max_points), 'y': deque(maxlen=self.max_points), 'label': 'Valor ADC'},
-            'ciclo': {'x': deque(maxlen=self.max_points), 'y': deque(maxlen=self.max_points), 'label': 'Intervalo entre Amostras (ms)'},
-            'batch_interval': {'x': deque(maxlen=self.max_points), 'y': deque(maxlen=self.max_points), 'label': 'Intervalo de Rede (ms)'}
+            'valor_adc': {
+                'x': deque(maxlen=self.max_points), 
+                'y': deque(maxlen=self.max_points), 
+                'label': 'Valor ADC'
+            },
+            'ciclo': {
+                'x': deque(maxlen=self.max_points), 
+                'y': deque(maxlen=self.max_points), 
+                'label': 'Intervalo entre Amostras (ms)'
+            },
+            'batch_interval': {
+                'x': deque(maxlen=self.max_points), 
+                'y': deque(maxlen=self.max_points), 
+                'label': 'Intervalo de Rede (ms)'
+            }
         }
-        self.current_graph = None
-        self.last_sample_time = None
-        self.sample_index = 0
-        self.start_time_ms = None
+
+        self.current_graph: Optional[str] = None
+        self.last_sample_time: Optional[int] = None
+        self.sample_index: int = 0
+        self.start_time_ms: Optional[int] = None
 
         self.line1, = self.ax.plot([], [], marker='o', markersize=2, linestyle='-', label='Sinal de Controle')
         self.line2 = None
 
-    def select_graph(self, graph_key):
+    def select_graph(self, graph_key: str) -> None:
+        """
+        Alterna o gráfico exibido na área de plotagem.
+
+        Limpa os eixos atuais e reconfigura títulos, labels e limites
+        para o novo tipo de dado solicitado.
+
+        Args:
+            graph_key (str): Chave do gráfico ('controle_tensao', 'valor_adc', etc).
+        """
+
         if self.current_graph == graph_key:
             return
 
         self.current_graph = graph_key
 
+        # Remove o eixo secundário se existir
         if self.ax2:
             self.ax2.remove()
             self.ax2 = None
@@ -77,15 +136,18 @@ class GraphManager:
         self.ax.clear()
         data = self.plot_data[graph_key]
 
+        # Configuração específica para o gráfico combinado (Controle + Tensão)
         if graph_key == 'controle_tensao':
             self.ax.set_title(data['label'])
             self.ax.set_xlabel("Tempo (s)")
 
+            # Eixo Esquerdo: Sinal de Controle
             self.line1, = self.ax.plot(data['x'], data['y1'], color='tab:blue', marker='o', markersize=2, linestyle='-', label='Sinal de Controle (%)')
             self.ax.set_ylabel('Sinal de Controle (%)', color='tab:blue')
             self.ax.set_ylim(0, 100)
             self.ax.tick_params(axis='y', labelcolor='tab:blue')
 
+            # Eixo Direito: Tensão (Twinx)
             self.ax2 = self.ax.twinx()
             self.line2, = self.ax2.plot(data['x'], data['y2'], color='tab:red', marker='x', markersize=2, linestyle='--', label='Tensão (mV)')
             self.ax2.set_ylabel('Tensão (mV)', color='tab:red')
@@ -93,6 +155,8 @@ class GraphManager:
             self.ax2.tick_params(axis='y', labelcolor='tab:red')
             
             self.ax.xaxis.set_major_formatter(plt.FormatStrFormatter('%.2f'))
+
+        # Configuração genérica para gráficos simples
         else:
             self.line1, = self.ax.plot(data['x'], data['y'], marker='o', markersize=2, linestyle='-')
             self.ax.set_title(data['label'])
@@ -109,7 +173,17 @@ class GraphManager:
 
         self.fig.tight_layout()
 
-    def append_plot_data(self, data):
+    def append_plot_data(self, data: Dict[str, Any]) -> None:
+        """
+        Processa um novo pacote de dados e o adiciona aos buffers circulares.
+
+        Calcula o tempo relativo (segundos) e deltas entre amostras.
+
+        Args:
+            data (dict): Dicionário contendo chaves como 'timestamp_amostra_ms',
+                        'sinal_controle', 'tensao_mv', etc.
+        """
+
         timestamp_amostra = data.get('timestamp_amostra_ms')
         if timestamp_amostra is None: return 
 
@@ -123,24 +197,38 @@ class GraphManager:
         tensao = data.get('tensao_mv', 0)
         adc = data.get('valor_adc', 0)
 
+        # Adiciona aos buffers do gráfico combinado
         self.plot_data['controle_tensao']['x'].append(current_time_sec)
         self.plot_data['controle_tensao']['y1'].append(sinal)
         self.plot_data['controle_tensao']['y2'].append(tensao)
 
+        # Adiciona aos buffers do ADC
         self.plot_data['valor_adc']['x'].append(current_time_sec)
         self.plot_data['valor_adc']['y'].append(adc)
 
+        # Calcula e armazena o ciclo (delta t)
         if self.last_sample_time is not None:
             cycle_time = timestamp_amostra - self.last_sample_time
             self.plot_data['ciclo']['x'].append(self.sample_index)
             self.plot_data['ciclo']['y'].append(cycle_time)
         self.last_sample_time = timestamp_amostra
 
+        # Adiciona aos buffers de intervalo de rede
         batch_interval = data.get('batch_interval_ms', 0)
         self.plot_data['batch_interval']['x'].append(self.sample_index)
         self.plot_data['batch_interval']['y'].append(batch_interval)
 
-    def animation_update_callback(self, frame):
+    def animation_update_callback(self, frame: int) -> Tuple:
+        """
+        Função chamada periodicamente pela animação para redesenhar as linhas.
+
+        Args:
+            frame (int): Número do quadro atual (fornecido pelo FuncAnimation).
+
+        Returns:
+            Tuple: Tupla contendo os objetos artísticos (linhas) atualizados.
+        """
+
         if not self.current_graph:
             return self.line1,
 
@@ -150,6 +238,7 @@ class GraphManager:
             self.line1.set_data(data['x'], data['y1'])
             self.line2.set_data(data['x'], data['y2'])
 
+            # Atualiza limites do eixo X dinamicamente
             if data['x']:
                 self.ax.set_xlim(data['x'][0], data['x'][-1])
                 self.ax2.set_xlim(data['x'][0], data['x'][-1])
@@ -167,7 +256,15 @@ class GraphManager:
                 self.ax.set_ylim(0, 4095)
             return self.line1,
 
-    def get_current_stats(self):
+    def get_current_stats(self) -> Dict[str, str]:
+        """
+        Calcula estatísticas rápidas dos dados atuais para exibição na barra de status.
+
+        Returns:
+            Dict[str, str]: Dicionário com chaves como 'last_x', 'last_y', 'avg_y'
+                            formatados como strings.
+        """
+
         if not self.current_graph:
             return {}
 
@@ -190,6 +287,7 @@ class GraphManager:
             formatted_x = f"{last_x:.2f}" if isinstance(last_x, float) else str(last_x)
             formatted_y = f"{last_y:.2f}"
 
+            # Média móvel dos últimos 50 pontos para suavizar a leitura
             last_50_y = list(data['y'])[-50:]
             avg_y = sum(last_50_y) / len(last_50_y) if last_50_y else 0
 

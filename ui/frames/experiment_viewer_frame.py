@@ -1,25 +1,55 @@
+"""
+Tela de Visualização de Histórico (Experiment Viewer).
+
+Este módulo permite carregar, visualizar e gerenciar experimentos passados.
+Funcionalidades principais:
+1. Listagem de experimentos concluídos do banco de dados.
+2. Plotagem estática detalhada (Sinal de Controle vs Tensão) usando Matplotlib.
+3. Exportação de dados para formatos externos (CSV, TXT, NPY).
+4. Exclusão permanente de registros do banco de dados.
+"""
+
 import customtkinter as ctk
-import core.database as database
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
-from tkinter import messagebox
-
+from tkinter import messagebox, filedialog as fd
 import os
-from tkinter import filedialog as fd
+from typing import Optional, List, Dict, Any
+
+import core.database as database
 import core.data_exporter as data_exporter
 from ui.plot_manager import apply_style_from_settings
 
 class ExperimentViewerFrame(ctk.CTkFrame):
-    def __init__(self, master, controller):
+    """
+    Frame dedicado à análise pós-experimento.
+    
+    Integra uma lista lateral de seleção com uma área de plotagem central
+    e ferramentas de manipulação de dados (Exportar/Excluir).
+    """
+
+    def __init__(self, master: Any, controller: Any):
+        """
+        Inicializa a interface do visualizador.
+
+        Args:
+            master: Widget pai.
+            controller: Controlador principal da aplicação.
+        """
+
         super().__init__(master)
         self.controller = controller
+
+        # Estado interno para o experimento selecionado atualmente
         self.current_loaded_data = None
         self.current_loaded_exp_id = None
 
+        # Configuração de Layout
         self.grid_rowconfigure(1, weight=1)
         self.grid_columnconfigure(0, weight=0, minsize=300)
         self.grid_columnconfigure(1, weight=1)
 
+        # --- 1. Barra Superior (Top Bar) ---
         top_bar = ctk.CTkFrame(self, height=50)
         top_bar.grid(row=0, column=0, columnspan=2, sticky="ew", padx=10, pady=10)
 
@@ -30,15 +60,18 @@ class ExperimentViewerFrame(ctk.CTkFrame):
         ctk.CTkButton(top_bar, text="Recarregar Lista", command=self.populate_experiment_list) \
             .pack(side="right", padx=5)
 
+        # --- 2. Barra Lateral (Lista de Experimentos) ---
         self.scroll_frame = ctk.CTkScrollableFrame(self, label_text="Experimentos Concluídos")
         self.scroll_frame.grid(row=1, column=0, sticky="nsew", padx=(10, 5), pady=(0, 10))
 
+        # --- 3. Área do Gráfico (Main) ---
         self.graph_frame = ctk.CTkFrame(self)
         self.graph_frame.grid(row=1, column=1, sticky="nsew", padx=(5, 10), pady=(0, 10))
         self.graph_frame.grid_rowconfigure(1, weight=1)
         self.graph_frame.grid_columnconfigure(0, weight=1)
 
-        apply_style_from_settings()
+        # Configuração do Matplotlib
+        apply_style_from_settings() # Aplica tema (Dark/Light)
 
         self.fig, self.ax = plt.subplots()
         self.ax2 = None
@@ -63,6 +96,7 @@ class ExperimentViewerFrame(ctk.CTkFrame):
             for widget in toolbar.winfo_children():
                 widget.config(background=toolbar_color, highlightthickness=0, bd=0)
 
+        # --- 4. Botões de Ação (Abaixo do gráfico) ---
         self.buttons_container = ctk.CTkFrame(self.graph_frame, fg_color="transparent")
         self.buttons_container.grid(row=2, column=0, pady=(10, 5), sticky="ew")
         self.buttons_container.grid_columnconfigure(0, weight=1)
@@ -83,7 +117,12 @@ class ExperimentViewerFrame(ctk.CTkFrame):
 
         self.populate_experiment_list()
 
-    def populate_experiment_list(self):
+    def populate_experiment_list(self) -> None:
+        """
+        Consulta o banco de dados e recria os botões da lista lateral.
+        Cada botão carrega um experimento específico ao ser clicado.
+        """
+
         for widget in self.scroll_frame.winfo_children():
             widget.destroy()
 
@@ -105,7 +144,15 @@ class ExperimentViewerFrame(ctk.CTkFrame):
                                 command=lambda e=exp['id']: self.load_experiment_data(e))
             btn.pack(pady=5, padx=5, fill="x")
 
-    def load_experiment_data(self, exp_id):
+    def load_experiment_data(self, exp_id: int) -> None:
+        """
+        Carrega os dados de telemetria do experimento selecionado e plota o gráfico.
+
+        Args:
+            exp_id (int): ID do experimento a ser carregado.
+        """
+
+        # Reseta estado atual
         self.current_loaded_data = None
         self.current_loaded_exp_id = None
         self.export_button.configure(state="disabled")
@@ -159,7 +206,12 @@ class ExperimentViewerFrame(ctk.CTkFrame):
             self.ax.set_title(f"Experimento #{exp_id} - Erro ao carregar dados")
             self.canvas.draw()
 
-    def on_export_pressed(self):
+    def on_export_pressed(self) -> None:
+        """
+        Abre uma caixa de diálogo para salvar os dados carregados em arquivo.
+        Suporta CSV, TXT e NPY.
+        """
+
         if not self.current_loaded_data:
             print("Nenhum dado carregado para exportar.")
             return
@@ -201,7 +253,12 @@ class ExperimentViewerFrame(ctk.CTkFrame):
         except Exception as e:
             print(f"Falha na exportação: {e}")
 
-    def delete_current_experiment(self):
+    def delete_current_experiment(self) -> None:
+        """
+        Exclui o experimento atualmente carregado após confirmação do usuário.
+        Atualiza a lista lateral e limpa o gráfico em caso de sucesso.
+        """
+
         if not self.current_loaded_exp_id:
             return
 
