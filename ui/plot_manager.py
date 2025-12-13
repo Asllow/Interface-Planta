@@ -26,8 +26,9 @@ def calculate_moving_average(data: List[float], alpha: float = 0.15) -> List[flo
                Valores menores (ex: 0.05) = Mais filtro, mais lag.
                0.15 é um bom equilíbrio para substituir uma janela de 20.
     """
-    if not data:
-        return []
+
+    if not data: return []
+    if len(data) < window_size: return list(data)
     
     # O EMA pode ser calculado muito rápido com Pandas, mas para manter
     # dependência apenas de NumPy/Python puro, usamos este loop otimizado:
@@ -310,13 +311,11 @@ class GraphManager:
         else:
             self.plot_data['controle_tensao']['y2_filtered'].append(tensao)
 
-        # CÁLCULO DE MÉDIA MÓVEL (LIVE)
-        # Pega os últimos 20 pontos do buffer de tensão para calcular a média atual
+        # NOVO: Cálculo Média Móvel Tempo Real
         buffer_tensao = list(self.plot_data['controle_tensao']['y2'])
-        window_size = 20
+        window = 20
         if len(buffer_tensao) > 0:
-            # Pega até os últimos 20 pontos
-            subset = buffer_tensao[-window_size:] 
+            subset = buffer_tensao[-window:] 
             avg_val = sum(subset) / len(subset)
             self.plot_data['controle_tensao']['y2_filtered'].append(avg_val)
         else:
