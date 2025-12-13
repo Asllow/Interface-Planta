@@ -4,7 +4,8 @@
 
 Interface gráfica desenvolvida para a disciplina de **Sistemas de Controle I**. O software atua como uma estação de controle e monitoramento para uma planta didática (Motor DC com Tacogerador), comunicando-se via Wi-Fi (HTTP) com um microcontrolador ESP32.
 
-O sistema permite a visualização de dados em tempo real, atuação via PWM, gravação seletiva de experimentos e análise histórica dos dados com recursos de filtragem de sinal.
+O sistema permite a visualização de dados em tempo real, atuação via PWM, gravação
+seletiva de experimentos e análise histórica dos dados com recursos de filtragem de sinal.
 
 ## 🚀 Funcionalidades
 
