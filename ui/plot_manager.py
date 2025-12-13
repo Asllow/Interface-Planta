@@ -19,20 +19,13 @@ def calculate_moving_average(data: List[float], window_size: int = 20) -> List[f
     Calcula a média móvel de uma lista de dados.
     Retorna uma lista do mesmo tamanho da entrada (com preenchimento inicial).
     """
-    if not data:
-        return []
+
+    if not data: return []
+    if len(data) < window_size: return list(data)
     
-    # Usa convolução do Numpy para eficiência
-    if len(data) < window_size:
-        return list(data) # Retorna original se não houver pontos suficientes
-        
     weights = np.ones(window_size) / window_size
-    # mode='full' e slicing mantém o tamanho original (com um leve shift/atraso natural do filtro)
     filtered = np.convolve(data, weights, mode='full')[:len(data)]
-    
-    # Ajuste inicial (opcional, para não começar do zero absoluto)
-    filtered[:window_size] = data[:window_size]
-    
+    filtered[:window_size] = data[:window_size] # Ajuste inicial
     return filtered.tolist()
 
 def apply_style_from_settings() -> None:
@@ -183,18 +176,17 @@ class GraphManager:
             # Eixo Direito: Tensão (Twinx)
             self.ax2 = self.ax.twinx()
             self.line2, = self.ax2.plot(data['x'], data['y2'], color='tab:red', marker='x', markersize=2, linestyle='--', label='Tensão (mV)')
-            # Tensão Filtrada (Laranja Sólida - Inicialmente invisível se toggle off)
-            self.line3, = self.ax2.plot(data['x'], data['y2_filtered'], color='orange', linewidth=2, linestyle='-', label='Tensão Filtrada (Méd)')
-            self.line3.set_visible(self.show_filter)
             self.ax2.set_ylabel('Tensão (mV)', color='tab:red')
             self.ax2.set_ylim(0, 3300)
             self.ax2.tick_params(axis='y', labelcolor='tab:red')
-            
-            # Legenda Unificada
+
+            self.line3, = self.ax2.plot(data['x'], data['y2_filtered'], color='orange', linewidth=2, linestyle='-', label='Tensão Filtrada (Méd)')
+            self.line3.set_visible(self.show_filter) # Começa visível ou não dependendo do estado
+
+            # Atualize a legenda para incluir a linha 3 se necessário
             lines_1, labels_1 = self.ax.get_legend_handles_labels()
             lines_2, labels_2 = self.ax2.get_legend_handles_labels()
             self.ax.legend(lines_1 + lines_2, labels_1 + labels_2, loc='upper left')
-            
             self.ax.xaxis.set_major_formatter(plt.FormatStrFormatter('%.2f'))
 
         # Configuração genérica para gráficos simples
@@ -243,13 +235,11 @@ class GraphManager:
         self.plot_data['controle_tensao']['y1'].append(sinal)
         self.plot_data['controle_tensao']['y2'].append(tensao)
 
-        # CÁLCULO DE MÉDIA MÓVEL (LIVE)
-        # Pega os últimos 20 pontos do buffer de tensão para calcular a média atual
+        # NOVO: Cálculo Média Móvel Tempo Real
         buffer_tensao = list(self.plot_data['controle_tensao']['y2'])
-        window_size = 20
+        window = 20
         if len(buffer_tensao) > 0:
-            # Pega até os últimos 20 pontos
-            subset = buffer_tensao[-window_size:] 
+            subset = buffer_tensao[-window:] 
             avg_val = sum(subset) / len(subset)
             self.plot_data['controle_tensao']['y2_filtered'].append(avg_val)
         else:

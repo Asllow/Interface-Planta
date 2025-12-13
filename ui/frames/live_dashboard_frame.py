@@ -65,17 +65,14 @@ class LiveDashboardFrame(ctk.CTkFrame):
         ctk.CTkButton(self.sidebar_frame, text="Valor ADC", command=lambda: self.select_graph('valor_adc')).pack(pady=10, padx=20)
         ctk.CTkButton(self.sidebar_frame, text="Intervalo Amostras", command=lambda: self.select_graph('ciclo')).pack(pady=10, padx=20)
 
-        # --- FEATURE: Switch de Filtro ---
         self.filter_var = ctk.BooleanVar(value=False)
         self.filter_switch = ctk.CTkSwitch(
             self.sidebar_frame, 
             text="Filtro (Média 20)",
             variable=self.filter_var,
-            command=self.on_filter_toggle,
-            onvalue=True, offvalue=False
+            command=self.on_filter_toggle
         )
         self.filter_switch.pack(pady=30, padx=20)
-        # ---------------------------------
 
         # 2. Área Central (Gráfico)
         self.main_frame = ctk.CTkFrame(self) 

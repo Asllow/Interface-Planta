@@ -15,7 +15,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from tkinter import messagebox, filedialog as fd
 import os
 import numpy as np
-from typing import Optional, List, Dict, Any
+from typing import Any
 
 import core.database as database
 import core.data_exporter as data_exporter
@@ -65,13 +65,13 @@ class ExperimentViewerFrame(ctk.CTkFrame):
         self.scroll_frame = ctk.CTkScrollableFrame(self, label_text="Experimentos Concluídos")
         self.scroll_frame.grid(row=1, column=0, sticky="nsew", padx=(10, 5), pady=(0, 10))
 
-        # --- FEATURE: Checkbox de Filtro na Sidebar ---
+        # Na seção scroll_frame (sidebar):
         self.filter_checkbox = ctk.CTkCheckBox(
             self.scroll_frame, 
             text="Ativar Filtro (Média)", 
             command=self.refresh_current_plot
         )
-        self.filter_checkbox.pack(side="top", pady=10, padx=10, fill="x") # Pack no topo ou fundo da sidebar
+        self.filter_checkbox.pack(side="top", pady=10, padx=10, fill="x")
 
         # --- 3. Área do Gráfico (Main) ---
         self.graph_frame = ctk.CTkFrame(self)
@@ -316,3 +316,7 @@ class ExperimentViewerFrame(ctk.CTkFrame):
                 self.populate_experiment_list()
             else:
                 messagebox.showerror("Erro", "Não foi possível excluir o experimento.")
+
+    def refresh_current_plot(self):
+        if self.current_loaded_exp_id:
+            self.load_experiment_data(self.current_loaded_exp_id)
