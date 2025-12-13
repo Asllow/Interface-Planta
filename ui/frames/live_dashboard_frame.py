@@ -64,7 +64,18 @@ class LiveDashboardFrame(ctk.CTkFrame):
         ctk.CTkButton(self.sidebar_frame, text="Controle e Tensão", command=lambda: self.select_graph('controle_tensao')).pack(pady=10, padx=20)
         ctk.CTkButton(self.sidebar_frame, text="Valor ADC", command=lambda: self.select_graph('valor_adc')).pack(pady=10, padx=20)
         ctk.CTkButton(self.sidebar_frame, text="Intervalo Amostras", command=lambda: self.select_graph('ciclo')).pack(pady=10, padx=20)
-        ctk.CTkButton(self.sidebar_frame, text="Intervalo de Rede", command=lambda: self.select_graph('batch_interval')).pack(pady=10, padx=20)
+
+        # --- FEATURE: Switch de Filtro ---
+        self.filter_var = ctk.BooleanVar(value=False)
+        self.filter_switch = ctk.CTkSwitch(
+            self.sidebar_frame, 
+            text="Filtro (Média 20)",
+            variable=self.filter_var,
+            command=self.on_filter_toggle,
+            onvalue=True, offvalue=False
+        )
+        self.filter_switch.pack(pady=30, padx=20)
+        # ---------------------------------
 
         # 2. Área Central (Gráfico)
         self.main_frame = ctk.CTkFrame(self) 
@@ -195,7 +206,14 @@ class LiveDashboardFrame(ctk.CTkFrame):
     def on_closing(self) -> None:
         """Chamado pelo MainApplication antes de fechar o programa."""
         self.stop_loops()
-    
+
+    def on_filter_toggle(self):
+        """Callback acionado ao clicar no Switch de filtro."""
+        is_active = self.filter_var.get()
+        if hasattr(self, 'plotter'):
+            self.plotter.toggle_filter(is_active)
+            self.canvas.draw_idle() # Solicita redesenho
+
     def toggle_pause(self) -> None:
         """
         Alterna entre Pausar e Retomar a atualização visual do gráfico.

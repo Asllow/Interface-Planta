@@ -10,8 +10,30 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.axes import Axes
 from collections import deque
+import numpy as np
 import config.settings as settings
-from typing import Dict, Optional, Any, Tuple
+from typing import Dict, Optional, Any, Tuple, List
+
+def calculate_moving_average(data: List[float], window_size: int = 20) -> List[float]:
+    """
+    Calcula a média móvel de uma lista de dados.
+    Retorna uma lista do mesmo tamanho da entrada (com preenchimento inicial).
+    """
+    if not data:
+        return []
+    
+    # Usa convolução do Numpy para eficiência
+    if len(data) < window_size:
+        return list(data) # Retorna original se não houver pontos suficientes
+        
+    weights = np.ones(window_size) / window_size
+    # mode='full' e slicing mantém o tamanho original (com um leve shift/atraso natural do filtro)
+    filtered = np.convolve(data, weights, mode='full')[:len(data)]
+    
+    # Ajuste inicial (opcional, para não começar do zero absoluto)
+    filtered[:window_size] = data[:window_size]
+    
+    return filtered.tolist()
 
 def apply_style_from_settings() -> None:
     """
@@ -77,6 +99,7 @@ class GraphManager:
         self.ax = ax
         self.ax2: Optional[Axes] = None
         self.max_points = max_points
+        self.show_filter = False  # Estado do Toggle
 
         # Estrutura de dados para armazenar buffers de diferentes tipos de gráficos
         self.plot_data: Dict[str, Dict[str, Any]] = {
@@ -84,6 +107,7 @@ class GraphManager:
                 'x': deque(maxlen=self.max_points), 
                 'y1': deque(maxlen=self.max_points),
                 'y2': deque(maxlen=self.max_points),
+                'y2_filtered': deque(maxlen=self.max_points),
                 'label': 'Sinal de Controle e Tensão'
             },
             'valor_adc': {
@@ -96,11 +120,6 @@ class GraphManager:
                 'y': deque(maxlen=self.max_points), 
                 'label': 'Intervalo entre Amostras (ms)'
             },
-            'batch_interval': {
-                'x': deque(maxlen=self.max_points), 
-                'y': deque(maxlen=self.max_points), 
-                'label': 'Intervalo de Rede (ms)'
-            }
         }
 
         self.current_graph: Optional[str] = None
@@ -110,6 +129,20 @@ class GraphManager:
 
         self.line1, = self.ax.plot([], [], marker='o', markersize=2, linestyle='-', label='Sinal de Controle')
         self.line2 = None
+        self.line3 = None
+
+    def toggle_filter(self, enabled: bool):
+        """Ativa ou desativa a visualização da linha de tensão filtrada."""
+
+        self.show_filter = enabled
+        if self.line3:
+            self.line3.set_visible(enabled)
+            # Adiciona ou remove da legenda
+            if self.ax2:
+                # Recria a legenda combinando handles de ax e ax2
+                lines_1, labels_1 = self.ax.get_legend_handles_labels()
+                lines_2, labels_2 = self.ax2.get_legend_handles_labels()
+                self.ax.legend(lines_1 + lines_2, labels_1 + labels_2, loc='upper left')
 
     def select_graph(self, graph_key: str) -> None:
         """
@@ -150,9 +183,17 @@ class GraphManager:
             # Eixo Direito: Tensão (Twinx)
             self.ax2 = self.ax.twinx()
             self.line2, = self.ax2.plot(data['x'], data['y2'], color='tab:red', marker='x', markersize=2, linestyle='--', label='Tensão (mV)')
+            # Tensão Filtrada (Laranja Sólida - Inicialmente invisível se toggle off)
+            self.line3, = self.ax2.plot(data['x'], data['y2_filtered'], color='orange', linewidth=2, linestyle='-', label='Tensão Filtrada (Méd)')
+            self.line3.set_visible(self.show_filter)
             self.ax2.set_ylabel('Tensão (mV)', color='tab:red')
             self.ax2.set_ylim(0, 3300)
             self.ax2.tick_params(axis='y', labelcolor='tab:red')
+            
+            # Legenda Unificada
+            lines_1, labels_1 = self.ax.get_legend_handles_labels()
+            lines_2, labels_2 = self.ax2.get_legend_handles_labels()
+            self.ax.legend(lines_1 + lines_2, labels_1 + labels_2, loc='upper left')
             
             self.ax.xaxis.set_major_formatter(plt.FormatStrFormatter('%.2f'))
 
@@ -202,6 +243,18 @@ class GraphManager:
         self.plot_data['controle_tensao']['y1'].append(sinal)
         self.plot_data['controle_tensao']['y2'].append(tensao)
 
+        # CÁLCULO DE MÉDIA MÓVEL (LIVE)
+        # Pega os últimos 20 pontos do buffer de tensão para calcular a média atual
+        buffer_tensao = list(self.plot_data['controle_tensao']['y2'])
+        window_size = 20
+        if len(buffer_tensao) > 0:
+            # Pega até os últimos 20 pontos
+            subset = buffer_tensao[-window_size:] 
+            avg_val = sum(subset) / len(subset)
+            self.plot_data['controle_tensao']['y2_filtered'].append(avg_val)
+        else:
+            self.plot_data['controle_tensao']['y2_filtered'].append(tensao)
+
         # Adiciona aos buffers do ADC
         self.plot_data['valor_adc']['x'].append(current_time_sec)
         self.plot_data['valor_adc']['y'].append(adc)
@@ -212,11 +265,6 @@ class GraphManager:
             self.plot_data['ciclo']['x'].append(self.sample_index)
             self.plot_data['ciclo']['y'].append(cycle_time)
         self.last_sample_time = timestamp_amostra
-
-        # Adiciona aos buffers de intervalo de rede
-        batch_interval = data.get('batch_interval_ms', 0)
-        self.plot_data['batch_interval']['x'].append(self.sample_index)
-        self.plot_data['batch_interval']['y'].append(batch_interval)
 
     def animation_update_callback(self, frame: int) -> Tuple:
         """
@@ -238,6 +286,10 @@ class GraphManager:
             self.line1.set_data(data['x'], data['y1'])
             self.line2.set_data(data['x'], data['y2'])
 
+            # Atualiza Linha Filtrada se visível
+            if self.show_filter and self.line3:
+                self.line3.set_data(data['x'], data['y2_filtered'])
+
             # Atualiza limites do eixo X dinamicamente
             if data['x']:
                 self.ax.set_xlim(data['x'][0], data['x'][-1])
@@ -246,7 +298,9 @@ class GraphManager:
             self.ax.set_ylim(0, 100)
             self.ax2.set_ylim(0, 3300)
             
-            return self.line1, self.line2,
+            artists = [self.line1, self.line2]
+            if self.line3: artists.append(self.line3)
+            return tuple(artists)
 
         else:
             self.line1.set_data(data['x'], data['y'])

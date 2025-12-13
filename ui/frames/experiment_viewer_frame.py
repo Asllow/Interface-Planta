@@ -14,11 +14,12 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from tkinter import messagebox, filedialog as fd
 import os
+import numpy as np
 from typing import Optional, List, Dict, Any
 
 import core.database as database
 import core.data_exporter as data_exporter
-from ui.plot_manager import apply_style_from_settings
+from ui.plot_manager import apply_style_from_settings, calculate_moving_average
 
 class ExperimentViewerFrame(ctk.CTkFrame):
     """
@@ -63,6 +64,14 @@ class ExperimentViewerFrame(ctk.CTkFrame):
         # --- 2. Barra Lateral (Lista de Experimentos) ---
         self.scroll_frame = ctk.CTkScrollableFrame(self, label_text="Experimentos Concluídos")
         self.scroll_frame.grid(row=1, column=0, sticky="nsew", padx=(10, 5), pady=(0, 10))
+
+        # --- FEATURE: Checkbox de Filtro na Sidebar ---
+        self.filter_checkbox = ctk.CTkCheckBox(
+            self.scroll_frame, 
+            text="Ativar Filtro (Média)", 
+            command=self.refresh_current_plot
+        )
+        self.filter_checkbox.pack(side="top", pady=10, padx=10, fill="x") # Pack no topo ou fundo da sidebar
 
         # --- 3. Área do Gráfico (Main) ---
         self.graph_frame = ctk.CTkFrame(self)
@@ -193,10 +202,23 @@ class ExperimentViewerFrame(ctk.CTkFrame):
 
             self.ax2 = self.ax.twinx()
             self.ax2.plot(time_sec, tensao_mv, color='tab:red', marker='x', markersize=2, linestyle='--', label='Tensão (mV)')
+
+            # --- LÓGICA DO FILTRO ---
+            if self.filter_checkbox.get() == 1:
+                # Calcula Média Móvel
+                tensao_filtrada = calculate_moving_average(tensao_mv, window_size=20)
+                self.ax2.plot(time_sec, tensao_filtrada, color='orange', linewidth=2, label='Filtrada (Média)')
+            # ------------------------
+
             self.ax2.set_ylabel('Tensão (mV)', color='tab:red')
             self.ax2.set_ylim(0, 3300)
             self.ax2.tick_params(axis='y', labelcolor='tab:red')
             self.ax2.grid(True, axis='y', linestyle=':', color='tab:red', alpha=0.5)
+
+            # Legenda Combinada
+            lines1, labels1 = self.ax.get_legend_handles_labels()
+            lines2, labels2 = self.ax2.get_legend_handles_labels()
+            self.ax.legend(lines1 + lines2, labels1 + labels2, loc='upper left')
 
             self.fig.tight_layout()
             self.canvas.draw()
@@ -239,11 +261,21 @@ class ExperimentViewerFrame(ctk.CTkFrame):
         _base, ext = os.path.splitext(filepath)
         ext = ext.lower()
 
+        # --- FEATURE: Preparar dados para exportação ---
+        data_to_export = self.current_loaded_data
+        filtered_values = None
+
+        # Se filtro estiver ATIVO, calcula para adicionar ao arquivo
+        if self.filter_checkbox.get() == 1:
+            raw_tension = [d.get('tensao_mv', 0) for d in self.current_loaded_data]
+            filtered_values = calculate_moving_average(raw_tension, window_size=20)
+
+        # ... (Bloco try/except de exportação) ...
         try:
             if ext == '.csv':
-                data_exporter.export_to_csv(self.current_loaded_data, filepath)
+                data_exporter.export_to_csv(data_to_export, filepath, filtered_col=filtered_values)
             elif ext == '.txt':
-                data_exporter.export_to_txt(self.current_loaded_data, filepath)
+                data_exporter.export_to_txt(data_to_export, filepath, filtered_col=filtered_values)
             elif ext == '.npy':
                 data_exporter.export_to_npy(self.current_loaded_data, filepath)
             else:

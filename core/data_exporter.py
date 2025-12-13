@@ -8,9 +8,9 @@ facilitando a análise externa em ferramentas como Excel, MATLAB ou scripts Pyth
 
 import csv
 import numpy as np
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
-def export_to_csv(data: List[Dict[str, Any]], filename: str) -> None:
+def export_to_csv(data: List[Dict[str, Any]], filename: str, filtered_col: Optional[List[float]] = None) -> None:
     """
     Exporta uma lista de dados para um arquivo CSV (Comma Separated Values).
 
@@ -24,22 +24,27 @@ def export_to_csv(data: List[Dict[str, Any]], filename: str) -> None:
     if not data:
         print("Exportar CSV: Nenhum dado para exportar.")
         return
+    # Cria uma cópia rasa para não alterar os dados originais na memória
+    export_data = [d.copy() for d in data]
 
-    # Assume que todos os dicionários têm as mesmas chaves
-    headers = data[0].keys()
+    # Injeta a coluna filtrada se fornecida
+    if filtered_col and len(filtered_col) == len(export_data):
+        for i, row in enumerate(export_data):
+            row['tensao_filtrada_mv'] = round(filtered_col[i], 2)
 
-    print(f"Exportando {len(data)} linhas para CSV em {filename}...")
+    headers = export_data[0].keys()
+
+    print(f"Exportando CSV para {filename}...")
     try:
-        # newline='' é importante no Windows para evitar linhas em branco extras
         with open(filename, 'w', newline='', encoding='utf-8') as f:
             writer = csv.DictWriter(f, fieldnames=headers)
             writer.writeheader()
-            writer.writerows(data)
+            writer.writerows(export_data)
         print("Exportação CSV concluída.")
     except Exception as e:
-        print(f"ERRO ao exportar para CSV: {e}")
+        print(f"ERRO CSV: {e}")
 
-def export_to_txt(data: List[Dict[str, Any]], filename: str) -> None:
+def export_to_txt(data: List[Dict[str, Any]], filename: str, filtered_col: Optional[List[float]] = None) -> None:
     """
     Exporta uma lista de dados para um arquivo de texto tabulado (.txt).
 
@@ -55,21 +60,26 @@ def export_to_txt(data: List[Dict[str, Any]], filename: str) -> None:
         print("Exportar TXT: Nenhum dado para exportar.")
         return
 
-    headers = data[0].keys()
+    # Lógica similar de injeção
+    keys = list(data[0].keys())
+    if filtered_col:
+        keys.append('tensao_filtrada_mv')
 
-    print(f"Exportando {len(data)} linhas para TXT em {filename}...")
+    print(f"Exportando TXT para {filename}...")
     try:
         with open(filename, 'w', encoding='utf-8') as f:
-            # Escreve o cabeçalho separado por tabs
-            f.write('\t'.join(headers) + '\n')
-
-            # Escreve as linhas de dados
-            for row in data:
-                values = [str(row.get(h, '')) for h in headers]
+            f.write('\t'.join(keys) + '\n')
+            for i, row in enumerate(data):
+                values = [str(row.get(k, '')) for k in row.keys()]
+                
+                # Adiciona valor do filtro se existir
+                if filtered_col and i < len(filtered_col):
+                    values.append(f"{filtered_col[i]:.2f}")
+                
                 f.write('\t'.join(values) + '\n')
         print("Exportação TXT concluída.")
     except Exception as e:
-        print(f"ERRO ao exportar para TXT: {e}")
+        print(f"ERRO TXT: {e}")
 
 def export_to_npy(data: List[Dict[str, Any]], filename: str) -> None:
     """
