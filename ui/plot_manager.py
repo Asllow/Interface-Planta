@@ -31,12 +31,13 @@ def calculate_moving_average(data: List[float], alpha: float = 0.15) -> List[flo
     
     # O EMA pode ser calculado muito rápido com Pandas, mas para manter
     # dependência apenas de NumPy/Python puro, usamos este loop otimizado:
+    if not data: return []
+    
     ema = []
-    current_ema = data[0] # O primeiro ponto é o valor inicial
+    current_ema = data[0]
     ema.append(current_ema)
     
     for value in data[1:]:
-        # Fórmula EMA: Novo = (Atual * alpha) + (Antigo * (1 - alpha))
         current_ema = (value * alpha) + (current_ema * (1 - alpha))
         ema.append(current_ema)
         

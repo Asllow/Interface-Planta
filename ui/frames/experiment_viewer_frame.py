@@ -215,7 +215,7 @@ class ExperimentViewerFrame(ctk.CTkFrame):
             # --- LÓGICA DO FILTRO ---
             if self.filter_checkbox.get() == 1:
                 # Calcula Média Móvel
-                tensao_filtrada = calculate_moving_average(tensao_mv, window_size=20)
+                tensao_filtrada = calculate_moving_average(tensao_mv)
                 self.ax2.plot(time_sec, tensao_filtrada, color='orange', linewidth=2, label='Filtrada (Média)')
             # ------------------------
 
@@ -277,7 +277,7 @@ class ExperimentViewerFrame(ctk.CTkFrame):
         # Se filtro estiver ATIVO, calcula para adicionar ao arquivo
         if self.filter_checkbox.get() == 1:
             raw_tension = [d.get('tensao_mv', 0) for d in self.current_loaded_data]
-            filtered_values = calculate_moving_average(raw_tension, window_size=20)
+            filtered_values = calculate_moving_average(raw_tension)
 
         # ... (Bloco try/except de exportação) ...
         try:
