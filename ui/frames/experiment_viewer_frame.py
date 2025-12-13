@@ -61,17 +61,26 @@ class ExperimentViewerFrame(ctk.CTkFrame):
         ctk.CTkButton(top_bar, text="Recarregar Lista", command=self.populate_experiment_list) \
             .pack(side="right", padx=5)
 
-        # --- 2. Barra Lateral (Lista de Experimentos) ---
-        self.scroll_frame = ctk.CTkScrollableFrame(self, label_text="Experimentos Concluídos")
-        self.scroll_frame.grid(row=1, column=0, sticky="nsew", padx=(10, 5), pady=(0, 10))
+        # --- 2. Barra Lateral (Estrutura Fixa + Lista) ---
+        # Criamos um container transparente para segurar a lista E o checkbox
+        sidebar_container = ctk.CTkFrame(self, fg_color="transparent")
+        sidebar_container.grid(row=1, column=0, sticky="nsew", padx=(10, 5), pady=(0, 10))
+        
+        # O container expande a linha 0 (onde fica a lista)
+        sidebar_container.grid_rowconfigure(0, weight=1)
+        sidebar_container.grid_columnconfigure(0, weight=1)
 
-        # Na seção scroll_frame (sidebar):
+        # A Lista de Experimentos (agora dentro do container)
+        self.scroll_frame = ctk.CTkScrollableFrame(sidebar_container, label_text="Experimentos Concluídos")
+        self.scroll_frame.grid(row=0, column=0, sticky="nsew")
+
+        # O Checkbox (agora fora da lista, fixo na parte inferior do container)
         self.filter_checkbox = ctk.CTkCheckBox(
-            self.scroll_frame, 
+            sidebar_container, 
             text="Ativar Filtro (Média)", 
             command=self.refresh_current_plot
         )
-        self.filter_checkbox.pack(side="top", pady=10, padx=10, fill="x")
+        self.filter_checkbox.grid(row=1, column=0, pady=10, sticky="ew")
 
         # --- 3. Área do Gráfico (Main) ---
         self.graph_frame = ctk.CTkFrame(self)

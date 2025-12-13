@@ -14,19 +14,33 @@ import numpy as np
 import config.settings as settings
 from typing import Dict, Optional, Any, Tuple, List
 
-def calculate_moving_average(data: List[float], window_size: int = 20) -> List[float]:
+def calculate_moving_average(data: List[float], alpha: float = 0.15) -> List[float]:
     """
-    Calcula a média móvel de uma lista de dados.
-    Retorna uma lista do mesmo tamanho da entrada (com preenchimento inicial).
-    """
-
-    if not data: return []
-    if len(data) < window_size: return list(data)
+    Calcula a Média Móvel Exponencial (EMA).
+    Reduz o atraso (lag) comparado à média simples.
     
-    weights = np.ones(window_size) / window_size
-    filtered = np.convolve(data, weights, mode='full')[:len(data)]
-    filtered[:window_size] = data[:window_size] # Ajuste inicial
-    return filtered.tolist()
+    Args:
+        data: Lista de valores brutos.
+        alpha: Fator de suavização (0 < alpha <= 1).
+               Valores maiores (ex: 0.3) = Menos lag, menos filtro.
+               Valores menores (ex: 0.05) = Mais filtro, mais lag.
+               0.15 é um bom equilíbrio para substituir uma janela de 20.
+    """
+    if not data:
+        return []
+    
+    # O EMA pode ser calculado muito rápido com Pandas, mas para manter
+    # dependência apenas de NumPy/Python puro, usamos este loop otimizado:
+    ema = []
+    current_ema = data[0] # O primeiro ponto é o valor inicial
+    ema.append(current_ema)
+    
+    for value in data[1:]:
+        # Fórmula EMA: Novo = (Atual * alpha) + (Antigo * (1 - alpha))
+        current_ema = (value * alpha) + (current_ema * (1 - alpha))
+        ema.append(current_ema)
+        
+    return ema
 
 def apply_style_from_settings() -> None:
     """
