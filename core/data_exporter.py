@@ -36,7 +36,6 @@ def export_to_csv(data: List[Dict[str, Any]], filename: str, filtered_col: Optio
 
     print(f"Exportando CSV para {filename}...")
     try:
-        # newline='' é importante no Windows para evitar linhas em branco extras
         with open(filename, 'w', newline='', encoding='utf-8') as f:
             writer = csv.DictWriter(f, fieldnames=headers)
             writer.writeheader()

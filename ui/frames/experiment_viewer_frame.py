@@ -82,6 +82,14 @@ class ExperimentViewerFrame(ctk.CTkFrame):
         )
         self.filter_checkbox.grid(row=1, column=0, pady=10, sticky="ew")
 
+        # --- FEATURE: Checkbox de Filtro na Sidebar ---
+        self.filter_checkbox = ctk.CTkCheckBox(
+            self.scroll_frame, 
+            text="Ativar Filtro (Média)", 
+            command=self.refresh_current_plot
+        )
+        self.filter_checkbox.pack(side="top", pady=10, padx=10, fill="x") # Pack no topo ou fundo da sidebar
+
         # --- 3. Área do Gráfico (Main) ---
         self.graph_frame = ctk.CTkFrame(self)
         self.graph_frame.grid(row=1, column=1, sticky="nsew", padx=(5, 10), pady=(0, 10))

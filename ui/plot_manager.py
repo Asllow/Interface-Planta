@@ -310,6 +310,18 @@ class GraphManager:
         else:
             self.plot_data['controle_tensao']['y2_filtered'].append(tensao)
 
+        # CÁLCULO DE MÉDIA MÓVEL (LIVE)
+        # Pega os últimos 20 pontos do buffer de tensão para calcular a média atual
+        buffer_tensao = list(self.plot_data['controle_tensao']['y2'])
+        window_size = 20
+        if len(buffer_tensao) > 0:
+            # Pega até os últimos 20 pontos
+            subset = buffer_tensao[-window_size:] 
+            avg_val = sum(subset) / len(subset)
+            self.plot_data['controle_tensao']['y2_filtered'].append(avg_val)
+        else:
+            self.plot_data['controle_tensao']['y2_filtered'].append(tensao)
+
         # Adiciona aos buffers do ADC
         self.plot_data['valor_adc']['x'].append(current_time_sec)
         self.plot_data['valor_adc']['y'].append(adc)
@@ -346,6 +358,10 @@ class GraphManager:
             self.line1.set_data(data['x'], data['y1'])
             self.line2.set_data(data['x'], data['y2'])
             self.line4.set_data(data['x'], data['y_est'])
+
+            # Atualiza Linha Filtrada se visível
+            if self.show_filter and self.line3:
+                self.line3.set_data(data['x'], data['y2_filtered'])
 
             # Atualiza Linha Filtrada se visível
             if self.show_filter and self.line3:
