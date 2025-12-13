@@ -49,7 +49,7 @@ interface-planta/
 ### Passo a Passo
 
 1. **Clone o repositório:**
-   git clone [https://github.com/seu-usuario/interface-planta.git](https://github.com/seu-usuario/interface-planta.git)
+   git clone https://github.com/seu-usuario/interface-planta.git
    cd interface-planta
 
 2. **Crie e ative um ambiente virtual (Recomendado):**
@@ -67,12 +67,14 @@ interface-planta/
 
 4. **Configuração (Opcional):**
    Você pode alterar o tema (Light/Dark) ou o esquema de cores editando o arquivo `config/settings.py`:
+   
    # config/settings.py
    APPEARANCE_MODE = "dark" 
    COLOR_THEME = "blue"
 
 5. **Execute a aplicação:**
    python main.py
+   
    *O console exibirá o endereço IP e a porta onde o servidor está escutando (ex: http://0.0.0.0:5000).*
 
 ## 🖥️ Como Usar
