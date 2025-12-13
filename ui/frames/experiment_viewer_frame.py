@@ -82,13 +82,17 @@ class ExperimentViewerFrame(ctk.CTkFrame):
         )
         self.filter_checkbox.grid(row=1, column=0, pady=10, sticky="ew")
 
-        # Na seção scroll_frame (sidebar):
+        # A Lista de Experimentos (agora dentro do container)
+        self.scroll_frame = ctk.CTkScrollableFrame(sidebar_container, label_text="Experimentos Concluídos")
+        self.scroll_frame.grid(row=0, column=0, sticky="nsew")
+
+        # O Checkbox (agora fora da lista, fixo na parte inferior do container)
         self.filter_checkbox = ctk.CTkCheckBox(
-            self.scroll_frame, 
+            sidebar_container, 
             text="Ativar Filtro (Média)", 
             command=self.refresh_current_plot
         )
-        self.filter_checkbox.pack(side="top", pady=10, padx=10, fill="x")
+        self.filter_checkbox.grid(row=1, column=0, pady=10, sticky="ew")
 
         # --- 3. Área do Gráfico (Main) ---
         self.graph_frame = ctk.CTkFrame(self)
