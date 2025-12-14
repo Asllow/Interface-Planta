@@ -4,7 +4,7 @@
 
 Interface gráfica desenvolvida para a disciplina de **Sistemas de Controle I**. O software atua como uma estação de controle e monitoramento para uma planta didática (Motor DC com Tacogerador), comunicando-se via Wi-Fi (HTTP) com um microcontrolador ESP32.
 
-O sistema permite a visualização de dados em tempo real, atuação via PWM, gravação seletiva de experimentos e análise histórica dos dados com recursos avançados de filtragem de sinal.
+O sistema permite a visualização de dados em tempo real, atuação via PWM, gravação seletiva de experimentos e análise histórica dos dados com recursos de filtragem de sinal.
 
 ## 🚀 Funcionalidades
 
@@ -51,6 +51,7 @@ Se você deseja editar o código ou compilar por conta própria.
 
 ### Estrutura do Projeto
 
+```text
 interface-planta/
 ├── main.py                  # Ponto de entrada
 ├── config/                  # Configurações globais
@@ -70,6 +71,7 @@ interface-planta/
    ```bash
    python -m venv venv
    .\venv\Scripts\activate
+   ```
 
 3. **Instale as dependências:**
    ```bash
@@ -107,14 +109,9 @@ O sistema espera requisições **POST** no endpoint `/data`.
     "valor_adc": 2048,
     "tensao_mv": 1650,
     "sinal_controle": 50.5
-  },
-  {
-    "timestamp_amostra_ms": 10550,
-    "valor_adc": 2055,
-    "tensao_mv": 1655,
-    "sinal_controle": 50.5
   }
 ]
+```
 
 ## 📄 Licença
 
