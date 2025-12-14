@@ -1,10 +1,13 @@
 # 🎛️ Interface de Controle de Planta (Tacogerador)
 
-![Python](https://img.shields.io/badge/Python-3.10%2B-blue) ![CustomTkinter](https://img.shields.io/badge/GUI-CustomTkinter-green) ![Status](https://img.shields.io/badge/Status-Active-success)
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
+![CustomTkinter](https://img.shields.io/badge/GUI-CustomTkinter-green)
+![Status](https://img.shields.io/badge/Status-Active-success)
+![Build](https://img.shields.io/badge/Build-Windows_Exe-blue)
 
 Interface gráfica desenvolvida para a disciplina de **Sistemas de Controle I**. O software atua como uma estação de controle e monitoramento para uma planta didática (Motor DC com Tacogerador), comunicando-se via Wi-Fi (HTTP) com um microcontrolador ESP32.
 
-O sistema permite a visualização de dados em tempo real, atuação via PWM, gravação seletiva de experimentos e análise histórica dos dados com recursos de filtragem de sinal.
+O sistema permite a visualização de dados em tempo real, atuação via PWM, gravação seletiva de experimentos e análise histórica dos dados.
 
 ## 🚀 Funcionalidades
 
