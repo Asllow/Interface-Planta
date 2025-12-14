@@ -17,3 +17,6 @@ images/
 # IDE files (VS Code, PyCharm, etc.)
 .vscode/
 .idea/
+
+# Arquivos gerados .exe
+*.exe
