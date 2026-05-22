@@ -115,7 +115,6 @@ def export_to_npy(data: List[Dict[str, Any]], filename: str) -> None:
             ('erro_obs_mv', 'f8')
         ]
 
-        # Converte a lista de dicts para uma lista de tuplas compatível com o dtype
         lista_de_tuplas = [
             (
                 d.get('timestamp_amostra_ms', 0),
