@@ -65,7 +65,8 @@ class LiveDashboardFrame(ctk.CTkFrame):
         ctk.CTkButton(self.sidebar_frame, text="Valor ADC", command=lambda: self.select_graph('valor_adc')).pack(pady=10, padx=20)
         ctk.CTkButton(self.sidebar_frame, text="Erro do Observador", command=lambda: self.select_graph('erro_observador'), fg_color="#8E44AD", hover_color="#732D91").pack(pady=10, padx=20)
         ctk.CTkButton(self.sidebar_frame, text="Intervalo Amostras", command=lambda: self.select_graph('ciclo')).pack(pady=10, padx=20)
-
+        ctk.CTkButton(self.sidebar_frame, text="Estados do Sistema", command=lambda: self.select_graph('estados_sistema'), fg_color="#2E86C1", hover_color="#1B4F72").pack(pady=10, padx=20)
+        
         self.filter_var = ctk.BooleanVar(value=False)
         self.filter_switch = ctk.CTkSwitch(
             self.sidebar_frame, 

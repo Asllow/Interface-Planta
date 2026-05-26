@@ -130,6 +130,9 @@ def init_db() -> None:
             sinal_controle REAL,
             tensao_estimada_mv REAL,
             erro_obs_mv REAL,
+            estado_1 REAL, 
+            estado_2 REAL, 
+            estado_3 REAL,
             FOREIGN KEY (id_experimento) REFERENCES experimentos (id)
         )
     """)
@@ -143,6 +146,13 @@ def init_db() -> None:
     try: cursor.execute("ALTER TABLE telemetria ADD COLUMN tensao_estimada_mv REAL")
     except sqlite3.OperationalError: pass
     try: cursor.execute("ALTER TABLE telemetria ADD COLUMN erro_obs_mv REAL")
+    except sqlite3.OperationalError: pass
+
+    try: cursor.execute("ALTER TABLE telemetria ADD COLUMN estado_1 REAL")
+    except sqlite3.OperationalError: pass
+    try: cursor.execute("ALTER TABLE telemetria ADD COLUMN estado_2 REAL")
+    except sqlite3.OperationalError: pass
+    try: cursor.execute("ALTER TABLE telemetria ADD COLUMN estado_3 REAL")
     except sqlite3.OperationalError: pass
 
     conn.commit()
@@ -175,15 +185,20 @@ def insert_data_batch(batch_data: List[Dict[str, Any]]) -> None:
                     data.get("tensao_mv"),
                     data.get("sinal_controle"),
                     data.get("tensao_estimada_mv"),
-                    data.get("erro_obs_mv")
+                    data.get("erro_obs_mv"),
+                    data.get("estado_1"), # NOVO
+                    data.get("estado_2"), # NOVO
+                    data.get("estado_3")  # NOVO
                 ))
 
         if tuples_to_insert:
+            # Atualize a query SQL
             cursor.executemany("""
                 INSERT INTO telemetria (
                     id_experimento, timestamp_recebimento, timestamp_amostra_ms, 
-                    valor_adc, tensao_mv, sinal_controle, tensao_estimada_mv, erro_obs_mv
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    valor_adc, tensao_mv, sinal_controle, tensao_estimada_mv, erro_obs_mv,
+                    estado_1, estado_2, estado_3
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, tuples_to_insert)
         
         conn.commit()
@@ -251,7 +266,7 @@ def get_telemetry_for_experiment(exp_id: int) -> List[Dict[str, Any]]:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT timestamp_amostra_ms, valor_adc, tensao_mv, sinal_controle, tensao_estimada_mv, erro_obs_mv
+            SELECT timestamp_amostra_ms, valor_adc, tensao_mv, sinal_controle, tensao_estimada_mv, erro_obs_mv, estado_1, estado_2, estado_3
             FROM telemetria 
             WHERE id_experimento = ?
             ORDER BY timestamp_amostra_ms ASC
