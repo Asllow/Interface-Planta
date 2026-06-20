@@ -1,15 +1,14 @@
 """
-Gestor de Plotagem Vetorial em Tempo Real.
+Gestor de Plotagem Vetorial em Tempo Real (Aceleração NumPy).
 
 Módulo responsável pela orquestração do motor de renderização Matplotlib.
-Implementa otimizações de memória (buffers circulares contíguos) e 
-estruturação de dados para compatibilidade estrita com algoritmos de Blitting.
+Substitui listas dinâmicas por estruturas RingBuffer alocadas em C (NumPy),
+garantindo complexidade O(1) e estabilidade de FPS para taxas de 1000Hz.
 """
 
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.axes import Axes
-from collections import deque
 import numpy as np
 from typing import Dict, Optional, Any, Tuple
 
@@ -19,9 +18,6 @@ import config.settings as settings
 def apply_style_from_settings() -> None:
     """
     Aplica o paradigma visual à instância global do Matplotlib.
-
-    Configura parâmetros de alto rendimento no rcParams e assegura
-    o contraste colorimétrico com o framework CustomTkinter.
     """
     mode = settings.APPEARANCE_MODE.lower()
 
@@ -59,57 +55,84 @@ def apply_style_from_settings() -> None:
         })
 
 
+class RingBuffer:
+    """
+    Vetor circular estático para contenção de telemetria em alta frequência.
+    Mitiga o acionamento do Garbage Collector limitando a alocação de memória ao arranque.
+    """
+    def __init__(self, capacity: int, dtype=float):
+        self.capacity = capacity
+        self.data = np.empty(capacity, dtype=dtype)
+        self.index = 0
+        self.is_full = False
+
+    def append(self, value: float) -> None:
+        self.data[self.index] = value
+        self.index += 1
+        if self.index == self.capacity:
+            self.index = 0
+            self.is_full = True
+
+    def get_data(self) -> np.ndarray:
+        if not self.is_full:
+            return self.data[:self.index]
+        return np.concatenate((self.data[self.index:], self.data[:self.index]))
+
+    def get_last(self) -> float:
+        if self.index == 0 and not self.is_full:
+            return 0.0
+        return self.data[self.index - 1]
+
+    def get_mean_recent(self, window: int = 50) -> float:
+        if not self.is_full and self.index == 0:
+            return 0.0
+        arr = self.get_data()
+        return np.mean(arr[-window:]) if len(arr) >= window else np.mean(arr)
+
+
 class GraphManager:
     """
-    Controlador de Estado e Geometria para gráficos de alta frequência.
-
-    Abstrai a manipulação das coleções de dados (Deques) e a atualização
-    das primitivas gráficas (Line2D) exigidas pelo motor de animação assíncrona.
+    Controlador de Estado e Geometria para gráficos acelerados.
     """
 
-    def __init__(self, fig: Figure, ax: Axes, max_points: int = 100):
+    def __init__(self, fig: Figure, ax: Axes, max_points: int = 2000):
         """
-        Instancia as estruturas de contenção de telemetria.
-
-        Args:
-            fig (Figure): Instância da figura base do Matplotlib.
-            ax (Axes): Instância do eixo coordenado primário.
-            max_points (int): Limite espacial dos buffers circulares.
+        Instancia buffers para 2000 amostras (Equivalente a 2 segundos a 1000Hz).
         """
         self.fig = fig
         self.ax = ax
         self.ax2: Optional[Axes] = None
         self.max_points = max_points
 
-        self.plot_data: Dict[str, Dict[str, Any]] = {
+        self.plot_data = {
             'controle_tensao': {
-                'x': deque(maxlen=self.max_points),
-                'y1': deque(maxlen=self.max_points),
-                'y2': deque(maxlen=self.max_points),
-                'y_est': deque(maxlen=self.max_points),
-                'label': 'Sinal de Controlo e Tensão'
+                'x': RingBuffer(max_points),
+                'y1': RingBuffer(max_points),
+                'y2': RingBuffer(max_points),
+                'y_est': RingBuffer(max_points),
+                'label': 'Controle e Tensão'
             },
             'valor_adc': {
-                'x': deque(maxlen=self.max_points),
-                'y': deque(maxlen=self.max_points),
+                'x': RingBuffer(max_points),
+                'y': RingBuffer(max_points),
                 'label': 'Valor Discreto ADC'
             },
             'ciclo': {
-                'x': deque(maxlen=self.max_points),
-                'y': deque(maxlen=self.max_points),
-                'label': 'Período de Amostragem (ms)'
+                'x': RingBuffer(max_points),
+                'y': RingBuffer(max_points),
+                'label': 'Tempo de Ciclo (ms)'
             },
             'erro_observador': {
-                'x': deque(maxlen=self.max_points),
-                'y': deque(maxlen=self.max_points),
-                'label': 'Erro de Estimação (mV)'
+                'x': RingBuffer(max_points),
+                'y': RingBuffer(max_points),
+                'label': 'Erro do Observador (mV)'
             },
             'estados_sistema': {
-                'x': deque(maxlen=self.max_points),
-                'y1': deque(maxlen=self.max_points),
-                'y2': deque(maxlen=self.max_points),
-                'y3': deque(maxlen=self.max_points),
-                'label': 'Matriz de Estados (LQR/Luenberger)'
+                'x': RingBuffer(max_points),
+                'y1': RingBuffer(max_points),
+                'y2': RingBuffer(max_points),
+                'y3': RingBuffer(max_points),
+                'label': 'Estados do Sistema'
             },
         }
 
@@ -127,10 +150,7 @@ class GraphManager:
 
     def select_graph(self, graph_key: str) -> None:
         """
-        Reestrutura a matriz dimensional de subplots e reinstancia as primitivas gráficas.
-
-        Args:
-            graph_key (str): Chave identificadora do mapa de visualização.
+        Reestrutura a matriz dimensional e reinstancia as primitivas gráficas.
         """
         if self.current_graph == graph_key:
             return
@@ -146,15 +166,15 @@ class GraphManager:
             self.ax2 = self.fig.add_subplot(2, 1, 2, sharex=self.ax)
 
             self.ax.set_title(data['label'])
-            self.ax.set_ylabel('Comando (%)', color='tab:blue')
-            self.line1, = self.ax.plot([], [], color='tab:blue', linestyle='-', animated=True, label='Sinal LQR (%)')
+            self.ax.set_ylabel('Sinal (%)', color='tab:blue')
+            self.line1, = self.ax.plot([], [], color='tab:blue', linestyle='-', animated=True, label='Sinal de Controle (%)')
             self.ax.set_ylim(0, 100)
             self.ax.legend(loc='upper left')
 
-            self.ax2.set_xlabel("Cronologia (s)")
-            self.ax2.set_ylabel('Potencial (mV)', color='tab:red')
-            self.line2, = self.ax2.plot([], [], color='tab:red', linestyle='-', animated=True, alpha=0.6, label='Medição Real')
-            self.line_est, = self.ax2.plot([], [], color='tab:orange', linestyle='--', animated=True, label='Estimação Luenberger')
+            self.ax2.set_xlabel("Tempo (s)")
+            self.ax2.set_ylabel('Tensão (mV)', color='tab:red')
+            self.line2, = self.ax2.plot([], [], color='tab:red', linestyle='-', animated=True, alpha=0.6, label='Tensão Real')
+            self.line_est, = self.ax2.plot([], [], color='tab:orange', linestyle='--', animated=True, label='Tensão Estimada')
             
             self.ax2.set_ylim(0, 3300)
             self.ax2.legend(loc='upper left')
@@ -162,26 +182,26 @@ class GraphManager:
         elif graph_key == 'estados_sistema':
             self.ax = self.fig.add_subplot(1, 1, 1)
             self.ax.set_title(data['label'])
-            self.ax.set_xlabel("Cronologia (s)")
-            self.ax.set_ylabel("Amplitude Variável")
+            self.ax.set_xlabel("Tempo (s)")
+            self.ax.set_ylabel("Amplitude")
             
-            self.line_est1, = self.ax.plot([], [], color='tab:blue', linestyle='-', animated=True, label='x1 (Velocidade)')
-            self.line_est2, = self.ax.plot([], [], color='tab:green', linestyle='-', animated=True, label='x2 (Corrente)')
-            self.line_est3, = self.ax.plot([], [], color='tab:orange', linestyle='-', animated=True, label='x3 (Erro Integrativo)')
+            self.line_est1, = self.ax.plot([], [], color='tab:blue', linestyle='-', animated=True, label='x1')
+            self.line_est2, = self.ax.plot([], [], color='tab:green', linestyle='-', animated=True, label='x2')
+            self.line_est3, = self.ax.plot([], [], color='tab:orange', linestyle='-', animated=True, label='x3')
             self.ax.legend(loc='upper left')
 
         elif graph_key == 'erro_observador':
             self.ax = self.fig.add_subplot(1, 1, 1)
             self.line1, = self.ax.plot([], [], color='tab:purple', linestyle='-', animated=True)
             self.ax.set_title(data['label'])
-            self.ax.set_xlabel("Cronologia (s)")
+            self.ax.set_xlabel("Tempo (s)")
             self.ax.axhline(0, color='gray', linestyle='--', alpha=0.5)
 
         else:
             self.ax = self.fig.add_subplot(1, 1, 1)
             self.line1, = self.ax.plot([], [], linestyle='-', animated=True)
             self.ax.set_title(data['label'])
-            self.ax.set_xlabel("Cronologia (s)" if graph_key == 'valor_adc' else "Índice Sequencial")
+            self.ax.set_xlabel("Tempo (s)" if graph_key == 'valor_adc' else "Amostra N")
             if graph_key == 'valor_adc':
                 self.ax.set_ylim(0, 4095)
 
@@ -189,10 +209,7 @@ class GraphManager:
 
     def append_plot_data(self, data: Dict[str, Any]) -> None:
         """
-        Incorpora e computa novos vetores de telemetria aos buffers de visualização.
-
-        Args:
-            data (Dict[str, Any]): Pacote de telemetria desserializado.
+        Incorpora pacote de telemetria aos buffers circulares.
         """
         timestamp_amostra = data.get('timestamp_amostra_ms')
         if timestamp_amostra is None: return 
@@ -203,31 +220,21 @@ class GraphManager:
 
         current_time_sec = (timestamp_amostra - self.start_time_ms) / 1000.0
 
-        sinal = data.get('sinal_controle', 0.0)
-        tensao = data.get('tensao_mv', 0.0)
-        adc = data.get('valor_adc', 0)
-        val_est = data.get('tensao_estimada_mv', np.nan)
-        val_erro = data.get('erro_obs_mv', np.nan)
-
-        est1 = data.get('estado_1', 0.0)
-        est2 = data.get('estado_2', 0.0)
-        est3 = data.get('estado_3', 0.0)
-
         self.plot_data['controle_tensao']['x'].append(current_time_sec)
-        self.plot_data['controle_tensao']['y1'].append(sinal)
-        self.plot_data['controle_tensao']['y2'].append(tensao)
-        self.plot_data['controle_tensao']['y_est'].append(val_est)
+        self.plot_data['controle_tensao']['y1'].append(data.get('sinal_controle', 0.0))
+        self.plot_data['controle_tensao']['y2'].append(data.get('tensao_mv', 0.0))
+        self.plot_data['controle_tensao']['y_est'].append(data.get('tensao_estimada_mv', np.nan))
 
         self.plot_data['erro_observador']['x'].append(current_time_sec)
-        self.plot_data['erro_observador']['y'].append(val_erro)
+        self.plot_data['erro_observador']['y'].append(data.get('erro_obs_mv', np.nan))
 
         self.plot_data['valor_adc']['x'].append(current_time_sec)
-        self.plot_data['valor_adc']['y'].append(adc)
+        self.plot_data['valor_adc']['y'].append(data.get('valor_adc', 0))
 
         self.plot_data['estados_sistema']['x'].append(current_time_sec)
-        self.plot_data['estados_sistema']['y1'].append(est1)
-        self.plot_data['estados_sistema']['y2'].append(est2)
-        self.plot_data['estados_sistema']['y3'].append(est3)
+        self.plot_data['estados_sistema']['y1'].append(data.get('estado_1', 0.0))
+        self.plot_data['estados_sistema']['y2'].append(data.get('estado_2', 0.0))
+        self.plot_data['estados_sistema']['y3'].append(data.get('estado_3', 0.0))
 
         if self.last_sample_time is not None:
             cycle_time = timestamp_amostra - self.last_sample_time
@@ -238,30 +245,24 @@ class GraphManager:
 
     def animation_update_callback(self, frame: int) -> Tuple:
         """
-        Rotina de injeção vetorial demandada pelo backend FuncAnimation.
-
-        Args:
-            frame (int): Iterador de chamada.
-
-        Returns:
-            Tuple: Coleção de instâncias Artist modificadas na iteração corrente.
+        Rotina de injeção vetorial exigida pelo backend FuncAnimation.
         """
         if not self.current_graph:
             return (self.line1,)
 
         data = self.plot_data[self.current_graph]
-        x_data = list(data['x'])
+        x_data = data['x'].get_data()
 
-        if not x_data:
+        if len(x_data) == 0:
             return ()
 
         current_x_min = x_data[0]
         current_x_max = x_data[-1]
 
         if self.current_graph == 'controle_tensao':
-            self.line1.set_data(x_data, data['y1'])
-            self.line2.set_data(x_data, data['y2'])
-            self.line_est.set_data(x_data, data['y_est'])
+            self.line1.set_data(x_data, data['y1'].get_data())
+            self.line2.set_data(x_data, data['y2'].get_data())
+            self.line_est.set_data(x_data, data['y_est'].get_data())
             
             artists = [self.line1, self.line2, self.line_est]
 
@@ -271,9 +272,9 @@ class GraphManager:
             return tuple(artists)
 
         elif self.current_graph == 'estados_sistema':
-            self.line_est1.set_data(x_data, data['y1'])
-            self.line_est2.set_data(x_data, data['y2'])
-            self.line_est3.set_data(x_data, data['y3'])
+            self.line_est1.set_data(x_data, data['y1'].get_data())
+            self.line_est2.set_data(x_data, data['y2'].get_data())
+            self.line_est3.set_data(x_data, data['y3'].get_data())
             
             self.ax.set_xlim(current_x_min, max(current_x_max, current_x_min + 0.1))
             self.ax.relim()
@@ -282,7 +283,7 @@ class GraphManager:
             return self.line_est1, self.line_est2, self.line_est3
 
         else:
-            self.line1.set_data(x_data, data['y'])
+            self.line1.set_data(x_data, data['y'].get_data())
             self.ax.set_xlim(current_x_min, max(current_x_max, current_x_min + 0.1))
             self.ax.relim()
             self.ax.autoscale_view(scalex=False, scaley=True)
@@ -290,31 +291,27 @@ class GraphManager:
 
     def get_current_stats(self) -> Dict[str, str]:
         """
-        Agregação estatística instantânea para atualização dos componentes HMI.
-
-        Returns:
-            Dict[str, str]: Variáveis formatadas prontas para atribuição em interface textual.
+        Agregação estatística instantânea para interface textual.
         """
         if not self.current_graph:
             return {}
 
         data = self.plot_data[self.current_graph]
+        
+        last_x = data['x'].get_last()
 
         if self.current_graph == 'controle_tensao':
-            if not data['x']: return {'last_x': "--", 'last_y1': "--", 'last_y2': "--"}
+            if last_x == 0.0: return {'last_x': "--", 'last_y1': "--", 'last_y2': "--"}
             return {
-                'last_x': f"{data['x'][-1]:.2f}",
-                'last_y1': f"{data['y1'][-1]:.2f}",
-                'last_y2': f"{data['y2'][-1]:.0f}"
+                'last_x': f"{last_x:.2f}",
+                'last_y1': f"{data['y1'].get_last():.2f}",
+                'last_y2': f"{data['y2'].get_last():.0f}"
             }
         else:
-            if not data['y']: return {'last_x': "--", 'last_y': "--", 'avg_y': "--"}
+            if last_x == 0.0: return {'last_x': "--", 'last_y': "--", 'avg_y': "--"}
             
-            last_y = data['y'][-1]
-            last_x = data['x'][-1]
-            
-            last_50_y = list(data['y'])[-50:]
-            avg_y = sum(last_50_y) / len(last_50_y) if last_50_y else 0.0
+            last_y = data['y'].get_last()
+            avg_y = data['y'].get_mean_recent(50)
 
             return {
                 'last_x': f"{last_x:.2f}" if isinstance(last_x, float) else str(last_x), 
