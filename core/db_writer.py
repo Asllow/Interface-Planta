@@ -1,64 +1,78 @@
 """
-Worker de Escrita no Banco de Dados (Otimizado com Batching).
+Thread de Persistência Assíncrona e Buffering (Write-Ahead Logging).
+
+Este módulo implementa o agendador de I/O em formato híbrido (Tempo + Volume).
+Garante que a fila contínua de telemetria UDP (200Hz) não sature os ciclos
+de leitura/escrita do disco SSD/SD Card, agrupando as métricas e consolidando
+o lote a cada 1 segundo rígido.
 """
 
 import threading
-from typing import Optional
+import time
+import queue
 import core.database as database
 from core.shared_state import db_queue
 
+
 def database_writer_thread() -> None:
-    print("DB Writer: Thread iniciada.")
+    """
+    Loop primário do Daemon de Escrita.
+    
+    Estratégia de Descarga (Flush):
+    1. Baseado em Tempo: A cada 1.0 segundos.
+    2. Baseado em Volume: A cada 500 amostras acumuladas.
+    3. Sinal de Shutdown: Descarga mandatória do buffer pendente.
+    """
+    print("DB Writer: Daemon alocado e a aguardar fluxos de telemetria.")
+    
     batch = []
+    flush_interval_sec = 1.0
+    batch_size_limit = 500
+    last_flush_time = time.time()
     
     while True:
         try:
-            # 1. Pega 1 item (bloqueia o processador e descansa se a fila estiver vazia)
-            data = db_queue.get()
-
-            if data is None:
-                # Se mandaram parar, salva o que sobrou no lote antes de morrer
+            # Suspensão da thread até 0.1s. Evita bloqueio I/O contínuo e polling agressivo.
+            item = db_queue.get(timeout=0.1)
+            
+            if item is None:  # Sinal de Shutdown/Poison Pill
                 if batch:
                     database.insert_data_batch(batch)
-                print("DB Writer: Sinal de parada recebido. Encerrando.")
+                print("DB Writer: Sinal de interrupção recebido. Buffer purgado. A encerrar.")
                 break
 
-            batch.append(data)
-
-            # 2. Varre a fila rapidamente pegando tudo o que chegou enquanto ele descansava
-            while not db_queue.empty():
-                item = db_queue.get_nowait()
-                if item is None:
-                    if batch:
-                        database.insert_data_batch(batch)
-                    print("DB Writer: Sinal de parada recebido. Encerrando.")
-                    return
-                
-                batch.append(item)
-                
-                # Trava de segurança: agrupa de 2000 em 2000 para não estourar a RAM
-                if len(batch) >= 2000:
-                    break
-
-            # 3. Manda o lote inteiro pro SSD (Abre e fecha o BD apenas 1 vez!)
-            if batch:
-                database.insert_data_batch(batch)
-                batch.clear()
-
+            batch.append(item)
+            
+        except queue.Empty:
+            # Timeout esperado. Segue para a validação das condições de flush.
+            pass
         except Exception as e:
-            print(f"DB Writer: Erro crítico ao inserir dados: {e}")
-            batch.clear()
+            print(f"DB Writer: Falha operacional no agendador de fila: {e}")
+            
+        current_time = time.time()
+        time_to_flush = (current_time - last_flush_time) >= flush_interval_sec
+        size_to_flush = len(batch) >= batch_size_limit
 
-    print("DB Writer: Thread finalizada.")
+        # Condição Híbrida: Aciona a gravação SQLite estritamente se houver dados e gatilho ativo.
+        if batch and (time_to_flush or size_to_flush):
+            database.insert_data_batch(batch)
+            batch.clear()
+            last_flush_time = time.time()
+
+    print("DB Writer: Daemon finalizado em segurança.")
+
 
 def start_db_writer_thread() -> threading.Thread:
+    """Injeta o ciclo de I/O numa subrotina desacoplada."""
     db_thread = threading.Thread(target=database_writer_thread, daemon=True)
     db_thread.start()
     return db_thread
 
+
 def stop_db_writer_thread() -> None:
+    """Injeta a diretiva de paragem estrita (Poison Pill) na fila de persistência."""
     try:
-        print("Enviando sinal de parada para DB Writer...")
+        print("Enviando sinal de suspensão para o DB Writer...")
         db_queue.put(None)
     except Exception as e:
-        print(f"Erro ao enviar sinal de parada para DB Writer: {e}")
+        print(f"Erro ao sinalizar o bloqueio do DB Writer: {e}")

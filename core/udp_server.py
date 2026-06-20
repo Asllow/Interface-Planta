@@ -1,32 +1,43 @@
 """
-Subsistema de Comunicação UDP para Telemetria e Controlo.
+Subsistema de Comunicação UDP de Alta Performance (Serialização Binária).
 
-Este módulo é responsável por instanciar os sockets UDP bidirecionais
-para a comunicação com o microcontrolador ESP32-S3 em ambiente de Ponto de Acesso.
-Divide-se em duas rotinas assíncronas concorrentes:
-1. Receção passiva de datagramas de telemetria em broadcast.
-2. Transmissão ativa de datagramas de comando em unicast.
+Este módulo instancia os sockets UDP bidirecionais para a comunicação com
+o microcontrolador ESP32-S3. Implementa o desempacotamento de estruturas 
+binárias nativas (C-structs), eliminando a latência e a sobrecarga de 
+alocação de memória (Garbage Collection) associadas ao parsing de strings e JSON.
 """
 
 import socket
-import json
+import struct
 import threading
 import time
 from datetime import datetime
 import queue
-from typing import Optional
+from typing import Optional, Dict, Any
 
 import config.settings as settings
 import core.database as database
 from core.shared_state import data_queue, db_queue, shared_data, data_lock
 
+# Definição do formato dimensional da estrutura binária proveniente do firmware.
+# '<'  : Endianness Little-Endian (Padrão arquitetura Xtensa do ESP32).
+# 'I'  : Inteiro sem sinal de 32-bits (4 bytes) destinado ao timestamp.
+# '8f' : Vetor contíguo de 8 números de Ponto Flutuante (32 bytes) para telemetria.
+# Total do Payload Alocado: 36 bytes absolutos.
+TELEMETRY_STRUCT_FORMAT = '<I8f'
+TELEMETRY_STRUCT_SIZE = struct.calcsize(TELEMETRY_STRUCT_FORMAT)
+
+# Formato do comando de atuação na malha de controlo (1 Float estrito).
+COMMAND_STRUCT_FORMAT = '<f'
+
 
 def _telemetry_receiver_loop() -> None:
     """
-    Laço de execução infinito para a receção de pacotes UDP de telemetria.
+    Laço de execução infinito para a receção passiva de datagramas UDP.
     
-    Efetua o parsing do payload JSON, calcula a latência relativa e injeta
-    os registos nas filas de interface e de base de dados.
+    Desempacota a estrutura binária em tempo real (200Hz), reconstrói 
+    o mapa de registos analíticos e efetua a injeção não-bloqueante 
+    nas filas de orquestração de UI e de persistência I/O.
     """
     last_batch_time: Optional[datetime] = None
 
@@ -34,16 +45,21 @@ def _telemetry_receiver_loop() -> None:
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     
     try:
-        # A interface escuta de forma passiva no IP genérico ou no endereço local.
         sock.bind(('', settings.UDP_TELEMETRY_PORT))
-    except socket.error as err:
+    except socket.error:
         return
 
     while True:
         try:
-            data, _ = sock.recvfrom(65536)
-            if not data:
+            # Receção do datagrama bruto predefinido.
+            data, _ = sock.recvfrom(1024)
+            
+            # Validação rigorosa de integridade dimensional para mitigação de buffer overflows.
+            if len(data) != TELEMETRY_STRUCT_SIZE:
                 continue
+
+            # Desempacotamento vetorial binário (O(1)).
+            unpacked_data = struct.unpack(TELEMETRY_STRUCT_FORMAT, data)
 
             current_time = datetime.now()
             batch_interval_ms = 0.0
@@ -54,33 +70,35 @@ def _telemetry_receiver_loop() -> None:
 
             last_batch_time = current_time
 
-            payload_str = data.decode('utf-8')
-            payload_str = payload_str.replace(':nan', ':null')
-            payload_str = payload_str.replace(':inf', ':null')
-            payload_str = payload_str.replace(':-inf', ':null')
-            
-            data_batch = json.loads(payload_str)
+            # Mapeamento do tuplo extraído para a hierarquia de chaves consumida pelo Dashboard.
+            item: Dict[str, Any] = {
+                'timestamp_amostra_ms': unpacked_data[0],
+                'sinal_controle': unpacked_data[1],
+                'tensao_mv': unpacked_data[2],
+                'valor_adc': unpacked_data[3],
+                'tensao_estimada_mv': unpacked_data[4],
+                'erro_obs_mv': unpacked_data[5],
+                'estado_1': unpacked_data[6],
+                'estado_2': unpacked_data[7],
+                'estado_3': unpacked_data[8],
+                'timestamp_recebimento': current_time.isoformat(),
+                'batch_interval_ms': batch_interval_ms
+            }
 
-            if isinstance(data_batch, dict):
-                data_batch = [data_batch]
+            try:
+                data_queue.put(item, block=False)
+            except queue.Full:
+                pass
 
-            for item in data_batch:
-                item['timestamp_recebimento'] = current_time.isoformat()
-                item['batch_interval_ms'] = batch_interval_ms
-
+            if database.is_recording_enabled and database.current_run_id is not None:
+                item['id_experimento'] = database.current_run_id
                 try:
-                    data_queue.put(item, block=False)
+                    db_queue.put(item, block=False)
                 except queue.Full:
                     pass
 
-                if database.is_recording_enabled and database.current_run_id is not None:
-                    item['id_experimento'] = database.current_run_id
-                    try:
-                        db_queue.put(item, block=False)
-                    except queue.Full:
-                        pass
-
-        except json.JSONDecodeError:
+        except struct.error:
+            # Descarte silencioso por falha de alinhamento binário ou datagrama corrompido.
             pass
         except Exception:
             break
@@ -88,10 +106,10 @@ def _telemetry_receiver_loop() -> None:
 
 def _command_sender_loop() -> None:
     """
-    Laço de execução contínuo para transmissão de comandos de controlo.
+    Laço de execução contínuo para transmissão ativa de diretivas LQR.
     
-    Verifica a presença de novas diretivas na estrutura partilhada e
-    encaminha o novo 'setpoint' para o endereço estático do ESP32 via UDP.
+    Inspeciona mutações na memória partilhada, executa o cast do tipo
+    Python para binário nativo e emite o bloco de 4 bytes via Unicast.
     """
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     
@@ -99,11 +117,10 @@ def _command_sender_loop() -> None:
         try:
             with data_lock:
                 if shared_data["new_command_available"]:
-                    payload = json.dumps({"new_setpoint": shared_data["current_setpoint"]})
-                    sock.sendto(payload.encode('utf-8'), (settings.ESP_IP, settings.UDP_COMMAND_PORT))
+                    payload = struct.pack(COMMAND_STRUCT_FORMAT, shared_data["current_setpoint"])
+                    sock.sendto(payload, (settings.ESP_IP, settings.UDP_COMMAND_PORT))
                     shared_data["new_command_available"] = False
                     
-            # Tempo de suspensão nominal para mitigar a exaustão de ciclos de CPU (Tick de 10ms)
             time.sleep(0.01)
             
         except Exception:
@@ -112,10 +129,10 @@ def _command_sender_loop() -> None:
 
 def start_network_threads() -> None:
     """
-    Inicializa os daemons responsáveis pela comunicação UDP.
+    Orquestração e alocação de threads em modo Daemon.
     
-    As threads são alocadas como 'daemons' para assegurar a finalização
-    automática durante o encerramento do processo principal.
+    Assegura o isolamento de concorrência face à thread gráfica do interpretador
+    e garante a libertação automática dos recursos de rede (Sockets) no encerramento.
     """
     receiver_thread = threading.Thread(target=_telemetry_receiver_loop, daemon=True)
     sender_thread = threading.Thread(target=_command_sender_loop, daemon=True)

@@ -1,35 +1,42 @@
 """
 Módulo de Gerenciamento de Banco de Dados (SQLite).
 
-Responsável por todas as operações de persistência de dados, incluindo:
-- Criação e inicialização de tabelas.
-- Controle de sessões de experimento (Início/Fim).
-- Inserção de telemetria e recuperação de histórico.
+Responsável por todas as operações de persistência de dados. Implementa 
+configurações de alto desempenho (WAL) e resolução de caminho absoluto
+para assegurar a integridade dos dados independente do diretório de chamada.
 """
 
 import sqlite3
+import os
 from datetime import datetime
 from typing import List, Dict, Optional, Any
 
-DB_FILE = "motor_data.db"
+# Resolução dinâmica do caminho absoluto base do projeto.
+# Garante a convergência para o mesmo ficheiro físico 'motor_data.db' na raiz do projeto.
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DB_FILE = os.path.join(BASE_DIR, "motor_data.db")
+
 current_run_id: Optional[int] = None
 is_recording_enabled: bool = False
 
+
 def _create_new_experiment() -> Optional[int]:
     """
-    Cria um novo registro na tabela 'experimentos' e define o status como 'running'.
+    Cria um novo registo na tabela 'experimentos' e define o status como 'running'.
     
     Returns:
-        Optional[int]: O ID do novo experimento criado, ou None em caso de erro.
+        Optional[int]: O ID do novo experimento alocado, ou None em caso de falha.
     """
-
     global current_run_id
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
 
         timestamp_inicio = datetime.now().isoformat()
-        cursor.execute("INSERT INTO experimentos (timestamp_inicio, status) VALUES (?, 'running')", (timestamp_inicio,))
+        cursor.execute(
+            "INSERT INTO experimentos (timestamp_inicio, status) VALUES (?, 'running')", 
+            (timestamp_inicio,)
+        )
 
         new_id = cursor.lastrowid
         conn.commit()
@@ -39,78 +46,77 @@ def _create_new_experiment() -> Optional[int]:
         print(f"--- NOVO EXPERIMENTO INICIADO --- ID: {current_run_id} ---")
         return new_id
     except Exception as e:
-        print(f"ERRO ao criar novo experimento: {e}")
+        print(f"ERRO ao alocar novo experimento: {e}")
         return None
 
+
 def is_experiment_running() -> bool:
-    """
-    Verifica se há um experimento ativo e se a gravação está habilitada.
-
-    Returns:
-        bool: True se estiver gravando, False caso contrário.
-    """
-
+    """Verifica se há um experimento ativo com permissão de persistência I/O."""
     global current_run_id, is_recording_enabled
     return (current_run_id is not None) and is_recording_enabled
 
-def start_new_experiment() -> None:
-    """
-    Habilita a flag de gravação e inicia um novo experimento no banco.
-    Se houver um experimento anterior aberto, ele será fechado primeiro.
-    """
 
+def start_new_experiment() -> None:
+    """Inicia um novo ciclo de gravação, encerrando o anterior de forma segura."""
     global is_recording_enabled
-    print("DB: Solicitação para iniciar novo experimento...")
+    print("DB: Solicitação de inicialização de persistência...")
     close_current_experiment() 
     is_recording_enabled = True
-    print("DB: Gravação LIGADA.")
+    print("DB: Gravação I/O ATIVADA.")
     _create_new_experiment()
 
-def close_current_experiment() -> None:
-    """
-    Finaliza o experimento atual, atualizando o timestamp de fim e status.
-    Desabilita a flag global de gravação.
-    """
 
+def close_current_experiment() -> None:
+    """Consolida os metadados do experimento corrente e cessa a gravação I/O."""
     global current_run_id, is_recording_enabled
 
     is_recording_enabled = False
-    print("DB: Gravação DESLIGADA.")
+    print("DB: Gravação I/O SUSPENSA.")
 
     if current_run_id is None:
-        print("DB: Nenhum experimento 'running' para fechar.")
         return
 
-    print(f"Fechando experimento ID: {current_run_id}...")
+    print(f"Consolidando metadados do experimento ID: {current_run_id}...")
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
 
         timestamp_fim = datetime.now().isoformat()
-        # Busca a última amostra para usar como data de fim real
-        cursor.execute("SELECT timestamp_recebimento FROM telemetria WHERE id_experimento = ? ORDER BY timestamp_recebimento DESC LIMIT 1", (current_run_id,))
+        
+        cursor.execute(
+            "SELECT timestamp_recebimento FROM telemetria WHERE id_experimento = ? ORDER BY timestamp_recebimento DESC LIMIT 1", 
+            (current_run_id,)
+        )
         last_telemetry_time = cursor.fetchone()
 
         if last_telemetry_time:
             timestamp_fim = last_telemetry_time[0]
 
-        cursor.execute("UPDATE experimentos SET timestamp_fim = ?, status = 'completed' WHERE id = ?", (timestamp_fim, current_run_id))
+        cursor.execute(
+            "UPDATE experimentos SET timestamp_fim = ?, status = 'completed' WHERE id = ?", 
+            (timestamp_fim, current_run_id)
+        )
 
         conn.commit()
         conn.close()
-        print(f"--- EXPERIMENTO FINALIZADO --- ID: {current_run_id} ---")
+        print(f"--- EXPERIMENTO CONCLUÍDO E INDEXADO --- ID: {current_run_id} ---")
         current_run_id = None
     except Exception as e:
-        print(f"ERRO ao fechar experimento {current_run_id}: {e}")
+        print(f"ERRO ao consolidar experimento {current_run_id}: {e}")
+
 
 def init_db() -> None:
     """
-    Inicializa a estrutura do banco de dados (DDL).
-    Cria as tabelas 'experimentos' e 'telemetria' se não existirem.
+    Inicializa a estrutura DDL (Data Definition Language) do SQLite.
+    Aplica Pragmáticas industriais para otimização do motor de base de dados.
     """
-
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
+    
+    cursor.execute("PRAGMA journal_mode=WAL;")
+    cursor.execute("PRAGMA synchronous=NORMAL;")
+    cursor.execute("PRAGMA cache_size=-64000;")
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS experimentos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -136,30 +142,35 @@ def init_db() -> None:
             FOREIGN KEY (id_experimento) REFERENCES experimentos (id)
         )
     """)
-    # Migrações para compatibilidade com versões antigas do DB
-    try: cursor.execute("ALTER TABLE experimentos ADD COLUMN timestamp_fim TEXT")
-    except sqlite3.OperationalError: pass
-    try: cursor.execute("ALTER TABLE experimentos ADD COLUMN status TEXT NOT NULL DEFAULT 'running'")
-    except sqlite3.OperationalError: pass
-    
-    # NOVAS MIGRAÇÕES (Protegem seus dados antigos)
-    try: cursor.execute("ALTER TABLE telemetria ADD COLUMN tensao_estimada_mv REAL")
-    except sqlite3.OperationalError: pass
-    try: cursor.execute("ALTER TABLE telemetria ADD COLUMN erro_obs_mv REAL")
-    except sqlite3.OperationalError: pass
 
-    try: cursor.execute("ALTER TABLE telemetria ADD COLUMN estado_1 REAL")
-    except sqlite3.OperationalError: pass
-    try: cursor.execute("ALTER TABLE telemetria ADD COLUMN estado_2 REAL")
-    except sqlite3.OperationalError: pass
-    try: cursor.execute("ALTER TABLE telemetria ADD COLUMN estado_3 REAL")
-    except sqlite3.OperationalError: pass
+    for col, def_type in [
+        ("timestamp_fim", "TEXT"),
+        ("status", "TEXT NOT NULL DEFAULT 'running'"),
+        ("tensao_estimada_mv", "REAL"),
+        ("erro_obs_mv", "REAL"),
+        ("estado_1", "REAL"),
+        ("estado_2", "REAL"),
+        ("estado_3", "REAL")
+    ]:
+        try:
+            cursor.execute(f"ALTER TABLE experimentos ADD COLUMN {col} {def_type}")
+        except sqlite3.OperationalError:
+            try:
+                cursor.execute(f"ALTER TABLE telemetria ADD COLUMN {col} {def_type}")
+            except sqlite3.OperationalError:
+                pass
 
     conn.commit()
     conn.close()
 
+
 def insert_data_batch(batch_data: List[Dict[str, Any]]) -> None:
-    """Insere um lote inteiro de amostras de uma só vez (MUITO mais rápido)."""
+    """
+    Executa a injeção em lote (Bulk Insert) de estruturas de telemetria.
+
+    Args:
+        batch_data (List[Dict[str, Any]]): Vetor de dicionários contendo métricas.
+    """
     if not batch_data:
         return
 
@@ -169,12 +180,7 @@ def insert_data_batch(batch_data: List[Dict[str, Any]]) -> None:
 
         tuples_to_insert = []
         for data in batch_data:
-            # Pega o ID que foi carimbado lá no web_server
-            exp_id = data.get('id_experimento')
-            
-            # Fallback (caso esqueça de carimbar)
-            if exp_id is None:
-                exp_id = current_run_id
+            exp_id = data.get('id_experimento') or current_run_id
                 
             if exp_id is not None:
                 tuples_to_insert.append((
@@ -186,13 +192,12 @@ def insert_data_batch(batch_data: List[Dict[str, Any]]) -> None:
                     data.get("sinal_controle"),
                     data.get("tensao_estimada_mv"),
                     data.get("erro_obs_mv"),
-                    data.get("estado_1"), # NOVO
-                    data.get("estado_2"), # NOVO
-                    data.get("estado_3")  # NOVO
+                    data.get("estado_1"),
+                    data.get("estado_2"),
+                    data.get("estado_3")
                 ))
 
         if tuples_to_insert:
-            # Atualize a query SQL
             cursor.executemany("""
                 INSERT INTO telemetria (
                     id_experimento, timestamp_recebimento, timestamp_amostra_ms, 
@@ -204,16 +209,11 @@ def insert_data_batch(batch_data: List[Dict[str, Any]]) -> None:
         conn.commit()
         conn.close()
     except Exception as e:
-        print(f"ERRO ao inserir lote no banco de dados: {e}")
+        print(f"ERRO DE I/O: Falha na transação em lote: {e}")
+
 
 def get_completed_experiments() -> List[Dict[str, Any]]:
-    """
-    Recupera a lista de todos os experimentos concluídos.
-
-    Returns:
-        List[Dict]: Lista de dicionários com metadados dos experimentos.
-    """
-
+    """Consulta os metadados privados das operações consolidadas."""
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
@@ -234,12 +234,11 @@ def get_completed_experiments() -> List[Dict[str, Any]]:
                 duracao_total = (fim - inicio)
                 segundos_totais = int(duracao_total.total_seconds())
                 minutos, segundos = divmod(segundos_totais, 60)
-                duracao_str = f"{minutos}m {segundos}s"
                 experimentos.append({
                     "id": row[0],
                     "inicio_str": inicio.strftime("%d/%m/%Y às %H:%M:%S"),
                     "fim_str": fim.strftime("%H:%M:%S"),
-                    "duracao_str": duracao_str,
+                    "duracao_str": f"{minutos}m {segundos}s",
                     "nome": f"Experimento #{row[0]}"
                 })
             except Exception: pass
@@ -247,20 +246,11 @@ def get_completed_experiments() -> List[Dict[str, Any]]:
         conn.close()
         return experimentos
     except Exception as e:
-        print(f"ERRO ao buscar experimentos concluídos: {e}")
         return []
 
+
 def get_telemetry_for_experiment(exp_id: int) -> List[Dict[str, Any]]:
-    """
-    Recupera todos os dados brutos de telemetria de um experimento específico.
-
-    Args:
-        exp_id (int): O ID do experimento.
-
-    Returns:
-        List[Dict]: Lista de dicionários contendo os dados de cada amostra.
-    """
-
+    """Extração de matriz de telemetria estruturada para análise analítica."""
     try:
         conn = sqlite3.connect(DB_FILE)
         conn.row_factory = sqlite3.Row
@@ -274,42 +264,26 @@ def get_telemetry_for_experiment(exp_id: int) -> List[Dict[str, Any]]:
         data = [dict(row) for row in cursor.fetchall()]
         conn.close()
         return data
-    except Exception as e:
-        print(f"ERRO ao buscar telemetria para o experimento {exp_id}: {e}")
+    except Exception:
         return []
 
+
 def delete_experiment(exp_id: int) -> bool:
-    """
-    Exclui permanentemente um experimento e seus dados associados.
-
-    Args:
-        exp_id (int): O ID do experimento a ser excluído.
-
-    Returns:
-        bool: True se bem-sucedido, False caso contrário.
-    """
-
+    """Expurga as referências e dependências I/O associadas a um ID de sessão."""
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
-
         cursor.execute("DELETE FROM telemetria WHERE id_experimento = ?", (exp_id,))
         cursor.execute("DELETE FROM experimentos WHERE id = ?", (exp_id,))
-        
         conn.commit()
         conn.close()
-        print(f"DB: Experimento {exp_id} excluído com sucesso.")
         return True
-    except Exception as e:
-        print(f"ERRO ao excluir experimento {exp_id}: {e}")
+    except Exception:
         return False
 
-def startup_cleanup() -> None:
-    """
-    Limpeza inicial: Marca como 'completed' experimentos que ficaram presos
-    como 'running' devido a falhas ou fechamentos abruptos anteriores.
-    """
 
+def startup_cleanup() -> None:
+    """Rotina de salvaguarda para corrupção transacional prévia."""
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
@@ -326,15 +300,5 @@ def startup_cleanup() -> None:
         cursor.execute("UPDATE experimentos SET status = 'completed' WHERE status = 'running' AND timestamp_fim IS NULL")
         conn.commit()
         conn.close()
-
-        if cursor.rowcount > 0:
-            print(f"DB: {cursor.rowcount} experimento(s) anterior(es) foi(ram) fechado(s).")
-    except Exception as e:
-        print(f"ERRO ao fechar experimentos antigos: {e}")
-
-if __name__ == '__main__':
-    print("Inicializando o banco de dados...")
-    init_db()
-    print("Fechando experimentos 'running' antigos (se houver)...")
-    startup_cleanup()
-    print("Banco de dados 'motor_data.db' pronto.")
+    except Exception:
+        pass
