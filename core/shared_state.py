@@ -1,11 +1,10 @@
 """
 Estado Compartilhado e Sincronização entre Threads.
 
-Este módulo armazena as estruturas de dados globais que permitem a comunicação
-segura entre a thread do Servidor Web (que recebe dados), a thread de Interface
-(que exibe dados) e a thread de Banco de Dados (que salva dados).
-
-Utiliza o padrão Produtor-Consumidor através de filas (Queues) thread-safe.
+Este módulo fornece as estruturas de dados globais destinadas à comunicação
+segura entre a thread de receção UDP, a thread da Interface Gráfica (UI)
+e a thread de persistência na base de dados (I/O). Implementa o padrão
+Produtor-Consumidor através de estruturas thread-safe.
 """
 
 import queue
@@ -14,27 +13,25 @@ from typing import Dict, Any
 
 # --- Filas de Comunicação (Queues) ---
 
-# Fila de Visualização:
-# Recebe dados do servidor e é consumida pelo gráfico em tempo real.
-# Definimos maxsize=1000 para evitar que a memória exploda se a interface
-# gráfica travar ou ficar lenta (backpressure). Se encher, dados velhos são descartados.
+# Fila de visualização alocada para os gráficos em tempo real.
+# Capacidade para 5000 amostras (aproximadamente 25 segundos a 200Hz).
+# Em caso de saturação (backpressure), novas amostras serão descartadas
+# para priorizar a vitalidade e tempo de resposta da UI.
 data_queue: queue.Queue = queue.Queue(maxsize=5000)
 
-# Fila de Persistência:
-# Recebe dados do servidor e é consumida pelo 'db_writer'.
-# Geralmente não limitamos o tamanho (ou usamos um limite muito alto) pois
-# a prioridade é não perder dados de gravação, mesmo que o disco seja lento.
+# Fila de persistência alocada para o subsistema de gravação SQLite.
+# Configuração sem limite predefinido para garantir a integridade total
+# do registo de dados, mitigando variações na latência de I/O do disco.
 db_queue: queue.Queue = queue.Queue()
 
-# --- Variáveis de Controle e Comandos ---
+# --- Variáveis de Controlo e Sincronização ---
 
-# Lock para garantir acesso exclusivo ao dicionário 'shared_data'.
-# Essencial para evitar 'Race Conditions' quando o usuário altera o Setpoint na UI
-# ao mesmo tempo que o servidor lê esse valor para enviar ao ESP32.
+# Mutex para assegurar a exclusão mútua nas operações de leitura e escrita
+# do dicionário partilhado, prevenindo 'Race Conditions'.
 data_lock: threading.Lock = threading.Lock()
 
-# Dicionário compartilhado para troca de estados e comandos.
+# Estrutura de dados partilhada para orquestração de comandos bidirecionais.
 shared_data: Dict[str, Any] = {
-    "current_setpoint": 0.0,      # Valor atual do PWM (0-100) definido pelo usuário
-    "new_command_available": False # Flag que indica se há um novo comando pendente
+    "current_setpoint": 0.0,
+    "new_command_available": False
 }

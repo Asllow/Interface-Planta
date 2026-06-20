@@ -1,7 +1,5 @@
 customtkinter
 matplotlib
-flask
-flask-sock
 numpy
 packaging
 pillow

@@ -1,38 +1,30 @@
 """
-Ponto de entrada principal da aplicação Dashboard de Controle.
+Ponto de entrada do Dashboard de Controlo Industrial.
 
-Este script é responsável por orquestrar a inicialização de todos os subsistemas:
-1. Banco de Dados (SQLite).
-2. Servidor Web (Flask) para recepção de telemetria.
-3. Thread de escrita assíncrona no banco.
-4. Interface Gráfica (CustomTkinter).
+Módulo de inicialização primária responsável pelo arranque sequencial
+da camada de persistência (Base de Dados), das threads de rede (Comunicação UDP),
+e do motor de renderização gráfica (CustomTkinter).
 """
 
 from core import database
-from core import web_server
+from core import udp_server
 from core import db_writer
 from ui.main_app import MainApplication
 
 def main() -> None:
     """
-    Função principal que inicializa os serviços e o loop da GUI.
+    Rotina principal de orquestração do sistema.
+    Inicia os subsistemas auxiliares e bloqueia a execução no MainLoop da interface.
     """
-
-    print("Inicializando o banco de dados...")
+    
     database.init_db()
-
-    print("Limpando experimentos antigos...")
     database.startup_cleanup()
 
-    print("Iniciando serviços de background...")
-    web_server.start_server_thread()
+    udp_server.start_network_threads()
     db_writer.start_db_writer_thread()
 
-    print("Iniciando Roteador Principal...")
     app = MainApplication()
     app.mainloop()
-
-    print("Mainloop encerrado.")
 
 if __name__ == "__main__":
     main()
