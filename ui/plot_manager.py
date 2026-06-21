@@ -2,8 +2,8 @@
 Gestor de Plotagem Vetorial em Tempo Real (Aceleração NumPy).
 
 Módulo responsável pela orquestração do motor de renderização Matplotlib.
-Substitui listas dinâmicas por estruturas RingBuffer alocadas em C (NumPy),
-garantindo complexidade O(1) e estabilidade de FPS para taxas de 1000Hz.
+Implementa matrizes RingBuffer (C-Array) para otimização de memória e 
+reajuste dinâmico de janelas de observação vetorial (Auto-Scaling).
 """
 
 import matplotlib.pyplot as plt
@@ -97,7 +97,7 @@ class GraphManager:
 
     def __init__(self, fig: Figure, ax: Axes, max_points: int = 2000):
         """
-        Instancia buffers para 2000 amostras (Equivalente a 2 segundos a 1000Hz).
+        Instancia buffers vetoriais estáticos e primitivas gráficas.
         """
         self.fig = fig
         self.ax = ax
@@ -202,6 +202,7 @@ class GraphManager:
             self.line1, = self.ax.plot([], [], linestyle='-', animated=True)
             self.ax.set_title(data['label'])
             self.ax.set_xlabel("Tempo (s)" if graph_key == 'valor_adc' else "Amostra N")
+            
             if graph_key == 'valor_adc':
                 self.ax.set_ylim(0, 4095)
 
@@ -246,6 +247,8 @@ class GraphManager:
     def animation_update_callback(self, frame: int) -> Tuple:
         """
         Rotina de injeção vetorial exigida pelo backend FuncAnimation.
+        Gere os redimensionamentos dinâmicos de eixo (Auto-Scaling) assegurando
+        a coerência da renderização através de chamadas draw_idle().
         """
         if not self.current_graph:
             return (self.line1,)
@@ -256,37 +259,62 @@ class GraphManager:
         if len(x_data) == 0:
             return ()
 
+        # --- 1. Ajuste Dinâmico do Eixo X (Janela Deslizante de Tempo) ---
         current_x_min = x_data[0]
         current_x_max = x_data[-1]
 
+        if current_x_max == current_x_min:
+            current_x_max = current_x_min + 0.1
+
+        self.ax.set_xlim(current_x_min, current_x_max)
+        if self.ax2:
+            self.ax2.set_xlim(current_x_min, current_x_max)
+
+        # --- 2. Injeção de Primitivas e Ajuste Condicional do Eixo Y ---
         if self.current_graph == 'controle_tensao':
             self.line1.set_data(x_data, data['y1'].get_data())
             self.line2.set_data(x_data, data['y2'].get_data())
             self.line_est.set_data(x_data, data['y_est'].get_data())
             
             artists = [self.line1, self.line2, self.line_est]
-
-            self.ax.set_xlim(current_x_min, max(current_x_max, current_x_min + 0.1))
-            self.ax2.set_xlim(current_x_min, max(current_x_max, current_x_min + 0.1))
             
+            # Repinta a grelha e marcadores para a janela deslizante
+            self.fig.canvas.draw_idle()
             return tuple(artists)
 
         elif self.current_graph == 'estados_sistema':
-            self.line_est1.set_data(x_data, data['y1'].get_data())
-            self.line_est2.set_data(x_data, data['y2'].get_data())
-            self.line_est3.set_data(x_data, data['y3'].get_data())
+            y1 = data['y1'].get_data()
+            y2 = data['y2'].get_data()
+            y3 = data['y3'].get_data()
             
-            self.ax.set_xlim(current_x_min, max(current_x_max, current_x_min + 0.1))
-            self.ax.relim()
-            self.ax.autoscale_view(scalex=False, scaley=True)
+            self.line_est1.set_data(x_data, y1)
+            self.line_est2.set_data(x_data, y2)
+            self.line_est3.set_data(x_data, y3)
             
+            # Filtra pacotes perdidos ou inválidos para calcular Limites Verticais
+            valid_y = np.concatenate([y1[~np.isnan(y1)], y2[~np.isnan(y2)], y3[~np.isnan(y3)]])
+            if len(valid_y) > 0:
+                y_min, y_max = np.min(valid_y), np.max(valid_y)
+                margin = (y_max - y_min) * 0.1 if y_max != y_min else 1.0
+                self.ax.set_ylim(y_min - margin, y_max + margin)
+
+            self.fig.canvas.draw_idle()
             return self.line_est1, self.line_est2, self.line_est3
 
         else:
-            self.line1.set_data(x_data, data['y'].get_data())
-            self.ax.set_xlim(current_x_min, max(current_x_max, current_x_min + 0.1))
-            self.ax.relim()
-            self.ax.autoscale_view(scalex=False, scaley=True)
+            y = data['y'].get_data()
+            self.line1.set_data(x_data, y)
+            
+            # O Valor ADC opera numa arquitetura fixa de 12-bits (0-4095).
+            # Apenas Ciclo e Erro devem flutuar.
+            if self.current_graph in ['erro_observador', 'ciclo']:
+                valid_y = y[~np.isnan(y)]
+                if len(valid_y) > 0:
+                    y_min, y_max = np.min(valid_y), np.max(valid_y)
+                    margin = (y_max - y_min) * 0.1 if y_max != y_min else 1.0
+                    self.ax.set_ylim(y_min - margin, y_max + margin)
+            
+            self.fig.canvas.draw_idle()
             return (self.line1,)
 
     def get_current_stats(self) -> Dict[str, str]:

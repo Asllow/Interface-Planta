@@ -61,7 +61,6 @@ class LiveDashboardFrame(ctk.CTkFrame):
 
         apply_style_from_settings()
         self.fig, self.ax = plt.subplots()
-        # Inicializado para 3000 pontos (3 segundos de histórico visível a 1000Hz)
         self.plotter = GraphManager(self.fig, self.ax, max_points=3000)
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.main_frame)
         self.canvas_widget = self.canvas.get_tk_widget()
@@ -83,7 +82,10 @@ class LiveDashboardFrame(ctk.CTkFrame):
 
         self.bottom_bar = ctk.CTkFrame(self, height=50) 
         self.bottom_bar.grid(row=2, column=1, padx=10, pady=(0, 10), sticky="ew")
-        ctk.CTkLabel(self.bottom_bar, text="Referência (Setpoint):").pack(side="left", padx=10)
+        
+        # Etiqueta genérica sem unidades rígidas
+        ctk.CTkLabel(self.bottom_bar, text="Referência:").pack(side="left", padx=10)
+        
         validate_cmd = self.register(self.validate_numeric_input) 
         self.entry_pwm = ctk.CTkEntry(self.bottom_bar, validate="key", validatecommand=(validate_cmd, '%P'))
         self.entry_pwm.pack(side="left", fill="x", expand=True)
@@ -250,6 +252,10 @@ class LiveDashboardFrame(ctk.CTkFrame):
         self.canvas.draw()
 
     def validate_numeric_input(self, value_if_allowed: str) -> bool:
+        """
+        Validação analítica livre. Permite qualquer representação de ponto flutuante,
+        delegando o tratamento de saturação ou integridade estritamente ao firmware.
+        """
         if value_if_allowed == "" or value_if_allowed == "-":
             return True
         try:

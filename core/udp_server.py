@@ -2,8 +2,9 @@
 Subsistema de Comunicação UDP de Alta Performance (Serialização Binária).
 
 Este módulo gerencia os túneis de comunicação com o microcontrolador ESP32-S3,
-implementando a extração em lote (batching) de amostras empacotadas em C-Structs.
-Esta arquitetura mitiga o gargalo de rede ao operar em taxas de amostragem de 1000Hz (1ms).
+implementando a extração em lote (batching) estrito de amostras empacotadas.
+Opera sob a diretriz arquitetural de 1000Hz (1ms), recebendo 5 amostras 
+agrupadas em buffers contíguos de 180 bytes.
 """
 
 import socket
@@ -19,19 +20,15 @@ import core.database as database
 from core.shared_state import data_queue, db_queue, shared_data, data_lock
 
 
-# --- Parâmetros de Loteamento (Batching) da Rede ---
-# Define quantas amostras o ESP32 agrupa em um único datagrama UDP.
-# Ajuste para 1 caso a planta retorne a operar rigidamente em 5ms (200Hz).
+# --- Parâmetros de Loteamento e Estrutura Binária ---
+EXPECTED_BUFFER_SIZE: int = 180
 SAMPLES_PER_PACKET: int = 5
+BYTES_PER_SAMPLE: int = 36
 
-# Definição do formato dimensional da estrutura binária proveniente do firmware.
-# '<'  : Endianness Little-Endian nativo do processador Xtensa.
-# 'I'  : Inteiro sem sinal de 32-bits (4 bytes) destinado ao timestamp.
-# '8f' : Vetor contíguo de 8 números de Ponto Flutuante (32 bytes) para telemetria.
+# Estrutura RX (Telemetria): <I8f (1 uint32_t, 8 floats)
 TELEMETRY_STRUCT_FORMAT: str = '<I8f'
-BYTES_PER_SAMPLE: int = struct.calcsize(TELEMETRY_STRUCT_FORMAT)
 
-# Formato do comando de atuação na malha de controle (1 Float estrito).
+# Estrutura TX (Comando): <f (1 float contendo a Tensão Alvo em Volts)
 COMMAND_STRUCT_FORMAT: str = '<f'
 
 
@@ -39,9 +36,9 @@ def _telemetry_receiver_loop() -> None:
     """
     Laço de execução infinito para a recepção passiva de datagramas UDP.
     
-    Extrai múltiplas amostras sequenciais de um único pacote (buffer) utilizando
-    ponteiros de memória contígua (offset), injetando-as individualmente nas filas
-    de processamento assíncrono.
+    Aplica validação rígida de comprimento de buffer (180 bytes) e executa
+    a extração de 5 amostras sequenciais via ponteiros de memória (offset),
+    injetando-as nas filas de processamento assíncrono.
     """
     last_batch_time: Optional[datetime] = None
 
@@ -55,53 +52,48 @@ def _telemetry_receiver_loop() -> None:
 
     while True:
         try:
-            data, _ = sock.recvfrom(2048)
+            buffer, _ = sock.recvfrom(512)
             
-            buffer_length = len(data)
-            num_amostras = buffer_length // BYTES_PER_SAMPLE
-            
-            if num_amostras == 0:
-                continue
+            # Validação estrita do loteamento exigido pela arquitetura de 1000Hz
+            if len(buffer) == EXPECTED_BUFFER_SIZE:
+                current_time = datetime.now()
+                batch_interval_ms = 0.0
 
-            current_time = datetime.now()
-            batch_interval_ms = 0.0
+                if last_batch_time is not None:
+                    delta = current_time - last_batch_time
+                    batch_interval_ms = (delta.total_seconds() * 1000.0) / SAMPLES_PER_PACKET
 
-            if last_batch_time is not None:
-                delta = current_time - last_batch_time
-                batch_interval_ms = (delta.total_seconds() * 1000.0) / num_amostras
+                last_batch_time = current_time
 
-            last_batch_time = current_time
+                for i in range(SAMPLES_PER_PACKET):
+                    offset = i * BYTES_PER_SAMPLE
+                    unpacked_data = struct.unpack_from(TELEMETRY_STRUCT_FORMAT, buffer, offset)
 
-            # Iteração O(N) estrita sobre o buffer binário de 180 bytes.
-            for i in range(num_amostras):
-                offset = i * BYTES_PER_SAMPLE
-                unpacked_data = struct.unpack_from(TELEMETRY_STRUCT_FORMAT, data, offset)
+                    item: Dict[str, Any] = {
+                        'timestamp_amostra_ms': unpacked_data[0],
+                        'sinal_controle': unpacked_data[1],
+                        'tensao_mv': unpacked_data[2],
+                        'valor_adc': unpacked_data[3],
+                        'tensao_estimada_mv': unpacked_data[4],
+                        'erro_obs_mv': unpacked_data[5],
+                        'estado_1': unpacked_data[6],
+                        'estado_2': unpacked_data[7],
+                        'estado_3': unpacked_data[8],
+                        'timestamp_recebimento': current_time.isoformat(),
+                        'batch_interval_ms': batch_interval_ms
+                    }
 
-                item: Dict[str, Any] = {
-                    'timestamp_amostra_ms': unpacked_data[0],
-                    'sinal_controle': unpacked_data[1],
-                    'tensao_mv': unpacked_data[2],
-                    'valor_adc': unpacked_data[3],
-                    'tensao_estimada_mv': unpacked_data[4],
-                    'erro_obs_mv': unpacked_data[5],
-                    'estado_1': unpacked_data[6],
-                    'estado_2': unpacked_data[7],
-                    'estado_3': unpacked_data[8],
-                    'timestamp_recebimento': current_time.isoformat(),
-                    'batch_interval_ms': batch_interval_ms
-                }
-
-                try:
-                    data_queue.put(item, block=False)
-                except queue.Full:
-                    pass
-
-                if database.is_recording_enabled and database.current_run_id is not None:
-                    item['id_experimento'] = database.current_run_id
                     try:
-                        db_queue.put(item, block=False)
+                        data_queue.put(item, block=False)
                     except queue.Full:
                         pass
+
+                    if database.is_recording_enabled and database.current_run_id is not None:
+                        item['id_experimento'] = database.current_run_id
+                        try:
+                            db_queue.put(item, block=False)
+                        except queue.Full:
+                            pass
 
         except struct.error:
             pass
@@ -113,7 +105,8 @@ def _command_sender_loop() -> None:
     """
     Laço de execução contínuo para transmissão ativa de comandos LQR.
     
-    Executa o encapsulamento binário de floats e direciona ao host remoto.
+    Encapsula o setpoint físico (Tensão Alvo em Volts) em binário nativo e
+    emite um datagrama restrito de 4 bytes para o microcontrolador.
     """
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     
